@@ -1,0 +1,8 @@
+[package]
+name = "demo_app"
+version = "0.1.0"
+authors = ["Claire Harris <wishing.engine@gmail.com>"]
+publish = false
+
+[dependencies]
+winit = "~0.17.2"
