@@ -33,6 +33,14 @@ struct JamjarCommand {
     )]
     #[structopt(parse(from_os_str))]
     output_dir: PathBuf,
+
+    #[structopt(
+        long = "icon_path",
+        short = "i",
+        help = "The icon image to use for the app. Defaults to `icon.png` in the app root."
+    )]
+    #[structopt(parse(from_os_str))]
+    icon_path: Option<PathBuf>,
 }
 
 fn main() {
@@ -40,12 +48,14 @@ fn main() {
         app_root,
         app_name,
         output_dir,
+        icon_path,
     } = JamjarCommand::from_args();
 
     let config = Configuration {
         app_root,
         app_name,
         output_dir,
+        icon_path,
     };
 
     match jamjar::package_app(&config) {

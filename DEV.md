@@ -9,7 +9,7 @@
 
 - [x] Creates a .app file with executable
 - [x] ... with Info.plist
-- [ ] ... with icons
+- [x] ... with icons
 - [ ] ... with runtime assets
 - [ ] ... with metadata (license, etc.)
 - [ ] ... with codesigning?

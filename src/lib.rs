@@ -4,6 +4,7 @@ extern crate failure;
 extern crate serde_derive;
 
 extern crate handlebars;
+extern crate image;
 extern crate serde;
 extern crate tempfile;
 extern crate toml;
@@ -11,7 +12,9 @@ extern crate zip;
 
 use std::io::Error as IOError;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
+use image::ImageError;
 use handlebars::{Handlebars, TemplateRenderError};
 use toml::de::Error as TomlError;
 use zip::{
@@ -46,8 +49,11 @@ pub enum JamjarError {
         cause: TemplateRenderError,
     },
 
-    #[fail(display = "project failed to build")]
-    CargoError,
+    #[fail(display = "failed to decode icon image: {}", _0)]
+    ImageError(ImageError),
+
+    #[fail(display = "external command `{}` failed", _0)]
+    ExternalCommandError(&'static str),
 
     #[fail(display = "an error occurred while compressing data: {}", _0)]
     ZipError(#[cause] ZipError),
@@ -78,18 +84,27 @@ impl From<ZipError> for JamjarError {
     }
 }
 
+impl From<ImageError> for JamjarError {
+    fn from(e: ImageError) -> Self {
+        JamjarError::ImageError(e)
+    }
+}
+
 #[derive(Debug)]
 pub struct Configuration {
     pub app_root: Option<PathBuf>,
     pub app_name: Option<String>,
     pub output_dir: PathBuf,
+    pub icon_path: Option<PathBuf>,
 }
 
 struct AppConfig<'a> {
     app_root: &'a Path,
     app_name: &'a str,
+    exe_name: &'a str,
     version: &'a str,
     bundle_id: &'a str,
+    icon_path: &'a Path,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,7 +120,6 @@ struct CargoManifestPackage {
 
 pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     use std::fs::File;
-    use std::process::Command;
 
     let cwd = match config.app_root {
         Some(ref path) => path
@@ -129,7 +143,7 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
         eprint!("{}", String::from_utf8_lossy(&output.stderr));
 
         if !output.status.success() {
-            return Err(JamjarError::CargoError);
+            return Err(JamjarError::ExternalCommandError("cargo"));
         }
     }
 
@@ -142,11 +156,17 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     let manifest = toml::from_str::<CargoManifest>(&manifest_toml)
         .map_err(|e| JamjarError::TomlError { cause: e })?;
 
-    let app_name = config.app_name.to_owned().unwrap_or(manifest.package.name);
+    let app_name = config.app_name.to_owned().unwrap_or(manifest.package.name.clone());
+    let exe_name = manifest.package.name;
+
+    let icon_path = match config.icon_path {
+        Some(ref path) => path.to_owned(),
+        None => cwd.join("icon.png"),
+    };
 
     println!(
-        "App name is: {}\nVersion is: {}",
-        app_name, manifest.package.version
+        "App name is: {}\nVersion is: {}\nIcon path is: {}",
+        app_name, manifest.package.version, icon_path.display(),
     );
 
     std::fs::create_dir_all(&config.output_dir)
@@ -164,8 +184,10 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     let app_config = AppConfig {
         app_root: &cwd,
         app_name: &app_name,
+        exe_name: &exe_name,
         version: &manifest.package.version,
         bundle_id: &app_name,
+        icon_path: &icon_path,
     };
 
     let _app_path = create_macos_app(app_config, temp_dir.as_ref())?;
@@ -209,8 +231,10 @@ fn create_macos_app(config: AppConfig, destination: &Path) -> Result<PathBuf, Ja
     let AppConfig {
         app_root,
         app_name,
+        exe_name,
         version,
         bundle_id,
+        icon_path,
     } = config;
 
     let app_path = destination.join(format!("{}.app", app_name));
@@ -219,11 +243,13 @@ fn create_macos_app(config: AppConfig, destination: &Path) -> Result<PathBuf, Ja
     let resources_path = contents_path.join("Resources");
     let plist_path = contents_path.join("Info.plist");
     let app_exe_path = macos_path.join(app_name);
+    let app_icons_path = resources_path.join("Icon.icns");
 
     std::fs::create_dir_all(&macos_path)?;
     std::fs::create_dir_all(&resources_path)?;
     std::fs::create_dir_all(&contents_path)?;
 
+    // Info.plist
     #[derive(Serialize)]
     struct InfoPlist<'a> {
         app_name: &'a str,
@@ -246,7 +272,57 @@ fn create_macos_app(config: AppConfig, destination: &Path) -> Result<PathBuf, Ja
     std::fs::write(&plist_path, &info_plist)
         .map_err(|e| JamjarError::io(e, "Failed to write Info.plist."))?;
 
-    let exe_path = app_root.join(format!("target/release/{}", app_name));
+    // Icons
+    {
+        println!("Creating icon set:");
+
+        let temp_icons_dir = tempfile::tempdir()?;
+        let temp_icons_dir = temp_icons_dir.as_ref().join(format!("{}.iconset", app_name));
+        std::fs::create_dir(&temp_icons_dir)?;
+
+        let image_bytes = std::fs::read(icon_path)?;
+        let image = image::load_from_memory(&image_bytes)?;
+
+        let sizes = &[
+            ((16,16),    "icon_16x16.png"),
+            ((32,32),    "icon_16x16@2x.png"),
+            ((32,32),    "icon_32x32.png"),
+            ((64,64),    "icon_32x32@2x.png"),
+            ((128,128),  "icon_128x128.png"),
+            ((256,256),  "icon_128x128@2x.png"),
+            ((256,256),  "icon_256x256.png"),
+            ((512,512),  "icon_256x256@2x.png"),
+            ((512,512),  "icon_512x512.png"),
+            ((1024,1024),"icon_512x512@2x.png"),
+        ];
+
+        for &((width, height), filename) in sizes {
+            use image::FilterType;
+
+            let resized_image = image.resize_exact(width, height, FilterType::CatmullRom);
+            resized_image.save(temp_icons_dir.join(filename))?;
+            println!("  Resized to {}", filename);
+        }
+
+        println!("Running iconutil");
+        let output = Command::new("iconutil")
+            .arg("-c")
+            .arg("icns")
+            .arg(temp_icons_dir)
+            .arg("--output")
+            .arg(&app_icons_path)
+            .output()?;
+
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+
+        if !output.status.success() {
+            return Err(JamjarError::ExternalCommandError("iconutil"));
+        }
+    }
+
+    // Executable
+    let exe_path = app_root.join(format!("target/release/{}", exe_name));
     std::fs::copy(&exe_path, &app_exe_path)?;
 
     let mut perms = std::fs::metadata(&app_exe_path)?.permissions();
