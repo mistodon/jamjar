@@ -159,7 +159,7 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     let app_name = config
         .app_name
         .to_owned()
-        .unwrap_or(manifest.package.name.clone());
+        .unwrap_or_else(|| manifest.package.name.clone());
     let exe_name = manifest.package.name;
 
     let icon_path = match config.icon_path {
@@ -195,7 +195,7 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
         icon_path: &icon_path,
     };
 
-    let _app_path = create_macos_app(app_config, temp_dir.as_ref())?;
+    let _app_path = create_macos_app(&app_config, temp_dir.as_ref())?;
 
     println!("Compressing app to output");
     let mut output_file = File::create(&output_path)
@@ -230,7 +230,7 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     Ok(output_path)
 }
 
-fn create_macos_app(config: AppConfig, destination: &Path) -> Result<PathBuf, JamjarError> {
+fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, JamjarError> {
     use std::os::unix::fs::PermissionsExt;
 
     let AppConfig {
