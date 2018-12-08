@@ -4,6 +4,7 @@
 - [x] Creates a .zip containing app
 - [ ] ... containing additional files (README etc.)
 - [ ] Testing / refactoring
+- [ ] Include git hash, version number, etc in metadata somewhere?
 
 ## macOS
 
