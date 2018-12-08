@@ -14,8 +14,8 @@ use std::io::Error as IOError;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use image::ImageError;
 use handlebars::{Handlebars, TemplateRenderError};
+use image::ImageError;
 use toml::de::Error as TomlError;
 use zip::{
     result::ZipError,
@@ -31,19 +31,13 @@ pub enum JamjarError {
         message: String,
     },
 
-    #[fail(
-        display = "an error occurred while parsing TOML file: {}",
-        cause
-    )]
+    #[fail(display = "an error occurred while parsing TOML file: {}", cause)]
     TomlError {
         #[cause]
         cause: TomlError,
     },
 
-    #[fail(
-        display = "an error occurred while writing to template: {}",
-        cause
-    )]
+    #[fail(display = "an error occurred while writing to template: {}", cause)]
     TemplateError {
         #[cause]
         cause: TemplateRenderError,
@@ -122,9 +116,15 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     use std::fs::File;
 
     let cwd = match config.app_root {
-        Some(ref path) => path
-            .canonicalize()
-            .map_err(|e| JamjarError::io(e, &format!("The input directory '{}' could not be found.", path.display())))?,
+        Some(ref path) => path.canonicalize().map_err(|e| {
+            JamjarError::io(
+                e,
+                &format!(
+                    "The input directory '{}' could not be found.",
+                    path.display()
+                ),
+            )
+        })?,
         None => std::env::current_dir()
             .map_err(|e| JamjarError::io(e, "Failed to get current directory."))?,
     };
@@ -156,7 +156,10 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     let manifest = toml::from_str::<CargoManifest>(&manifest_toml)
         .map_err(|e| JamjarError::TomlError { cause: e })?;
 
-    let app_name = config.app_name.to_owned().unwrap_or(manifest.package.name.clone());
+    let app_name = config
+        .app_name
+        .to_owned()
+        .unwrap_or(manifest.package.name.clone());
     let exe_name = manifest.package.name;
 
     let icon_path = match config.icon_path {
@@ -166,7 +169,9 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
 
     println!(
         "App name is: {}\nVersion is: {}\nIcon path is: {}",
-        app_name, manifest.package.version, icon_path.display(),
+        app_name,
+        manifest.package.version,
+        icon_path.display(),
     );
 
     std::fs::create_dir_all(&config.output_dir)
@@ -277,23 +282,25 @@ fn create_macos_app(config: AppConfig, destination: &Path) -> Result<PathBuf, Ja
         println!("Creating icon set:");
 
         let temp_icons_dir = tempfile::tempdir()?;
-        let temp_icons_dir = temp_icons_dir.as_ref().join(format!("{}.iconset", app_name));
+        let temp_icons_dir = temp_icons_dir
+            .as_ref()
+            .join(format!("{}.iconset", app_name));
         std::fs::create_dir(&temp_icons_dir)?;
 
         let image_bytes = std::fs::read(icon_path)?;
         let image = image::load_from_memory(&image_bytes)?;
 
         let sizes = &[
-            ((16,16),    "icon_16x16.png"),
-            ((32,32),    "icon_16x16@2x.png"),
-            ((32,32),    "icon_32x32.png"),
-            ((64,64),    "icon_32x32@2x.png"),
-            ((128,128),  "icon_128x128.png"),
-            ((256,256),  "icon_128x128@2x.png"),
-            ((256,256),  "icon_256x256.png"),
-            ((512,512),  "icon_256x256@2x.png"),
-            ((512,512),  "icon_512x512.png"),
-            ((1024,1024),"icon_512x512@2x.png"),
+            ((16, 16), "icon_16x16.png"),
+            ((32, 32), "icon_16x16@2x.png"),
+            ((32, 32), "icon_32x32.png"),
+            ((64, 64), "icon_32x32@2x.png"),
+            ((128, 128), "icon_128x128.png"),
+            ((256, 256), "icon_128x128@2x.png"),
+            ((256, 256), "icon_256x256.png"),
+            ((512, 512), "icon_256x256@2x.png"),
+            ((512, 512), "icon_512x512.png"),
+            ((1024, 1024), "icon_512x512@2x.png"),
         ];
 
         for &((width, height), filename) in sizes {

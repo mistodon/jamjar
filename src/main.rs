@@ -1,10 +1,8 @@
 extern crate jamjar;
 
-#[macro_use]
-extern crate structopt_derive;
-
 extern crate failure;
 extern crate structopt;
+extern crate structopt_derive;
 
 use std::path::PathBuf;
 
