@@ -3,6 +3,7 @@ name = "jamjar"
 version = "0.1.0"
 authors = ["Claire Harris <wishing.engine@gmail.com>"]
 description = "A simple, opinionated tool for packaging Rust apps for different platforms. Mostly intended for game jams."
+edition = "2018"
 
 [features]
 default = ["cli"]
