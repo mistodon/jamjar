@@ -1,21 +1,11 @@
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate serde_derive;
-
-extern crate handlebars;
-extern crate image;
-extern crate serde;
-extern crate tempfile;
-extern crate toml;
-extern crate zip;
-
 use std::io::Error as IOError;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use failure::Fail;
 use handlebars::{Handlebars, TemplateRenderError};
 use image::ImageError;
+use serde_derive::{Deserialize, Serialize};
 use toml::de::Error as TomlError;
 use zip::{
     result::ZipError,
