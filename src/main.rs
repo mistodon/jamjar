@@ -39,6 +39,12 @@ struct JamjarCommand {
     )]
     #[structopt(parse(from_os_str))]
     icon_path: Option<PathBuf>,
+
+    #[structopt(
+        long = "features",
+        help = "Space-separated list of features to activate."
+    )]
+    features: Vec<String>,
 }
 
 fn main() {
@@ -47,6 +53,7 @@ fn main() {
         app_name,
         output_dir,
         icon_path,
+        features,
     } = JamjarCommand::from_args();
 
     let config = Configuration {
@@ -54,6 +61,7 @@ fn main() {
         app_name,
         output_dir,
         icon_path,
+        features,
     };
 
     match jamjar::package_app(&config) {

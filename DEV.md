@@ -5,6 +5,7 @@
 - [ ] ... containing additional files (README etc.)
 - [ ] Testing / refactoring
 - [ ] Include git hash, version number, etc in metadata somewhere?
+- [ ] Include OS in filename
 
 ## macOS
 

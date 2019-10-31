@@ -80,6 +80,7 @@ pub struct Configuration {
     pub app_name: Option<String>,
     pub output_dir: PathBuf,
     pub icon_path: Option<PathBuf>,
+    pub features: Vec<String>,
 }
 
 struct AppConfig<'a> {
@@ -123,11 +124,15 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
 
     println!("Compiling app for release:");
     {
-        let output = Command::new("cargo")
-            .current_dir(&cwd)
-            .arg("build")
-            .arg("--release")
-            .output()?;
+        let mut cmd = Command::new("cargo");
+        cmd.current_dir(&cwd).arg("build").arg("--release");
+
+        if !config.features.is_empty() {
+            cmd.arg("--features");
+            cmd.args(config.features.iter());
+        }
+
+        let output = cmd.output()?;
 
         print!("{}", String::from_utf8_lossy(&output.stdout));
         eprint!("{}", String::from_utf8_lossy(&output.stderr));
