@@ -172,9 +172,25 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     std::fs::create_dir_all(&config.output_dir)
         .map_err(|e| JamjarError::io(e, "Failed to create output directory."))?;
 
-    let output_path = config
-        .output_dir
-        .join(format!("{}_{}.zip", app_name, manifest.package.version));
+    let platform = {
+        #[cfg(windows)]
+        {
+            "win"
+        }
+        #[cfg(target_os = "macos")]
+        {
+            "macos"
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            "linux"
+        }
+    };
+
+    let output_path = config.output_dir.join(format!(
+        "{}_{}_{}.zip",
+        app_name, platform, manifest.package.version
+    ));
 
     let temp_dir = tempfile::tempdir()
         .map_err(|e| JamjarError::io(e, "Failed to create temporary directory."))?;
