@@ -364,6 +364,9 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn create_linux_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, JamjarError> {
+    println!("Creating Linux app.");
+    println!("Config: {:#?}", config);
+
     let exe_path = config
         .app_root
         .join(format!("target/release/{}", config.exe_name));
