@@ -3,14 +3,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use failure::Fail;
-use handlebars::{Handlebars, TemplateRenderError};
+use handlebars::{TemplateRenderError};
 use image::ImageError;
-use serde_derive::{Deserialize, Serialize};
 use toml::de::Error as TomlError;
 use zip::{
     result::ZipError,
     write::{FileOptions, ZipWriter},
 };
+
+#[cfg(target_os = "macos")]
+use handlebars::Handlebars;
 
 #[derive(Debug, Fail)]
 pub enum JamjarError {
@@ -93,12 +95,12 @@ struct AppConfig<'a> {
     icon_path: &'a Path,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct CargoManifest {
     package: CargoManifestPackage,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct CargoManifestPackage {
     name: String,
     version: String,
@@ -276,7 +278,7 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
     std::fs::create_dir_all(&contents_path)?;
 
     // Info.plist
-    #[derive(Serialize)]
+    #[derive(serde::Serialize)]
     struct InfoPlist<'a> {
         app_name: &'a str,
         version: &'a str,
