@@ -83,6 +83,7 @@ pub struct Configuration {
     pub features: Vec<String>,
 }
 
+#[derive(Debug)]
 struct AppConfig<'a> {
     app_root: &'a Path,
     app_name: &'a str,
@@ -195,8 +196,6 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     let temp_dir = tempfile::tempdir()
         .map_err(|e| JamjarError::io(e, "Failed to create temporary directory."))?;
 
-    println!("Creating macOS app");
-
     let app_config = AppConfig {
         app_root: &cwd,
         app_name: &app_name,
@@ -206,7 +205,14 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
         icon_path: &icon_path,
     };
 
-    let _app_path = create_macos_app(&app_config, temp_dir.as_ref())?;
+    #[cfg(target_os = "macos")]
+    {
+        create_macos_app(&app_config, temp_dir.as_ref())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        create_linux_app(&app_config, temp_dir.as_ref())?;
+    }
 
     println!("Compressing app to output");
     let mut output_file = File::create(&output_path)
@@ -241,8 +247,12 @@ pub fn package_app(config: &Configuration) -> Result<PathBuf, JamjarError> {
     Ok(output_path)
 }
 
+#[cfg(target_os = "macos")]
 fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, JamjarError> {
     use std::os::unix::fs::PermissionsExt;
+
+    println!("Creating macOS app.");
+    println!("Config: {:#?}", config);
 
     let AppConfig {
         app_root,
@@ -348,4 +358,13 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
     std::fs::set_permissions(&app_exe_path, perms)?;
 
     Ok(app_path)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn create_linux_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, JamjarError> {
+    let exe_path = config
+        .app_root
+        .join(format!("target/release/{}", config.exe_name));
+    std::fs::copy(&exe_path, &destination)?;
+    Ok(destination.to_owned())
 }
