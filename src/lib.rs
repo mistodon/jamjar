@@ -370,6 +370,6 @@ fn create_linux_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
     let exe_path = config
         .app_root
         .join(format!("target/release/{}", config.exe_name));
-    std::fs::copy(&exe_path, &destination)?;
+    std::fs::copy(&exe_path, &format!("{}/{}", destination.display(), config.exe_name))?;
     Ok(destination.to_owned())
 }
