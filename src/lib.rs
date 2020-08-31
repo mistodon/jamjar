@@ -313,23 +313,26 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
         let image_bytes = std::fs::read(icon_path)?;
         let image = image::load_from_memory(&image_bytes)?;
 
+        let base_size = 16;
         let sizes = &[
-            ((16, 16), "icon_16x16.png"),
-            ((32, 32), "icon_16x16@2x.png"),
-            ((32, 32), "icon_32x32.png"),
-            ((64, 64), "icon_32x32@2x.png"),
-            ((128, 128), "icon_128x128.png"),
-            ((256, 256), "icon_128x128@2x.png"),
-            ((256, 256), "icon_256x256.png"),
-            ((512, 512), "icon_256x256@2x.png"),
-            ((512, 512), "icon_512x512.png"),
-            ((1024, 1024), "icon_512x512@2x.png"),
+            (1, "icon_16x16.png"),
+            (2, "icon_16x16@2x.png"),
+            (2, "icon_32x32.png"),
+            (4, "icon_32x32@2x.png"),
+            (8, "icon_128x128.png"),
+            (16, "icon_128x128@2x.png"),
+            (16, "icon_256x256.png"),
+            (32, "icon_256x256@2x.png"),
+            (32, "icon_512x512.png"),
+            (64, "icon_512x512@2x.png"),
         ];
 
-        for &((width, height), filename) in sizes {
+        for &(scale, filename) in sizes {
             use image::FilterType;
 
-            let resized_image = image.resize_exact(width, height, FilterType::CatmullRom);
+            let size = scale * base_size;
+
+            let resized_image = image.resize_exact(size, size, FilterType::CatmullRom);
             resized_image.save(temp_icons_dir.join(filename))?;
             println!("  Resized to {}", filename);
         }
@@ -370,6 +373,9 @@ fn create_linux_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
     let exe_path = config
         .app_root
         .join(format!("target/release/{}", config.exe_name));
+
+    // don't copy to exe name, use provided app name
+    // Copy into a folder, not straight to zip
     std::fs::copy(&exe_path, &format!("{}/{}", destination.display(), config.exe_name))?;
     Ok(destination.to_owned())
 }
