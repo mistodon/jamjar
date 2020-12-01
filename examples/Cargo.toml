@@ -5,5 +5,10 @@ authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
 edition = "2018"
 
 [dependencies]
+toml = "*"
+serde = { version = "*", features = ["derive"] }
 jamjar = { path = "..", features = ["everything"] }
 winit = "~0.23"
+
+[build-dependencies]
+jamjar = { path = "..", features = ["codegen"] }

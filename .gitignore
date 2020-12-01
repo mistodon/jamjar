@@ -2,3 +2,4 @@
 **/jamjar_build
 **/jamjar_web_build
 **/*.rs.bk
+/examples/src/gen/*
