@@ -1,0 +1,29 @@
+[package]
+name = "jamjar-cli"
+version = "0.1.0"
+authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
+description = "A simple, opinionated tool for packaging Rust apps for different platforms. Mostly intended for game jams."
+edition = "2018"
+
+[[bin]]
+name = "jamjar"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["structopt"]
+
+[dependencies]
+failure = "~0.1.3"
+handlebars = "~1.1.0"
+image = "~0.20.0"
+serde = "~1.0.80"
+serde_derive = "~1.0.80"
+tempfile = "~3.0.4"
+toml = "~0.4.8"
+zip = "~0.4.2"
+
+[dependencies.structopt]
+optional = true
+version = "~0.3.21"

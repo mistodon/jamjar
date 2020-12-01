@@ -1,4 +1,4 @@
-/target
-/demo_app/target
-/jamjar_build
+**/target
+**/jamjar_build
+**/jamjar_web_build
 **/*.rs.bk
