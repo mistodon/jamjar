@@ -8,6 +8,7 @@ pub fn create_data_structs<'a, I: IntoIterator<Item = &'a SrcModuleType<'a>>>(
             filename,
             module,
             &edres::StructOptions {
+                struct_name: name.to_owned(),
                 generate_const: false,
                 generate_load_fns: false,
                 default_int_size: edres::IntSize::I32,
