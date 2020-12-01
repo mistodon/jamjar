@@ -8,7 +8,12 @@ edition = "2018"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
 jamjar = { path = "..", features = ["everything"] }
-winit = "~0.23"
 
 [build-dependencies]
 jamjar = { path = "..", features = ["codegen"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "~0.1.6"
+console_log = "~0.2"
+log = "~0.4.11"
+wasm-bindgen = "~0.2.69"

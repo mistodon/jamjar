@@ -2,6 +2,7 @@ use winit::{
     event_loop::EventLoop,
     window::{WindowBuilder, Window},
 };
+pub use winit::*;
 
 pub fn window_and_event_loop(
     title: &str,

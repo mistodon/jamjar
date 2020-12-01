@@ -2,14 +2,15 @@
 
 ## Next
 Lib:
-- [ ] Re-export winit through windowing
-- [ ] Build-time codegen (wrapping edres)
-- [ ] Easily importing that codegen stuff
+- [x] Re-export winit through windowing
+- [x] Build-time codegen (wrapping edres)
+- [x] Easily importing that codegen stuff
 - [ ] Resource loading (wrapping resource)
-- [ ] Hot-reloading assets (wrapping dirty_static and helper macros)
-- [ ] Re-export resource, dirty_static, dymod, lazy_static
+- [x] Hot-reloading assets (wrapping dirty_static and helper macros)
+- [x] Re-export resource, dirty_static, dymod, lazy_static
 - [ ] Audio module on separate thread
     - [ ] Or same thread, if that doesn't work on wasm
+- [ ] Test dymod with a billion configurations and then publish
 
 ## Later
 CLI:

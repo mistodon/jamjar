@@ -316,8 +316,7 @@ checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 [[package]]
 name = "dymod"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfd50c62844817b34cd26b8eb7738f23e56b52eedfda9e3093abbcf98c544965"
+source = "git+https://github.com/mistodon/dymod?branch=web#826ad2a046412697a5b4cb982f4c9d4ac8d4ac40"
 dependencies = [
  "libloading 0.5.2",
 ]
@@ -332,7 +331,7 @@ dependencies = [
  "failure",
  "linear-map",
  "quote",
- "serde_yaml",
+ "serde_yaml 0.7.5",
  "toml 0.4.10",
 ]
 
@@ -438,6 +437,8 @@ dependencies = [
  "lazy_static",
  "resource",
  "serde",
+ "serde_yaml 0.8.14",
+ "toml 0.5.7",
  "web-sys",
  "winit",
 ]
@@ -910,6 +911,18 @@ name = "serde_yaml"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef8099d3df28273c99a1728190c7a9f19d444c941044f64adf986bee7ec53051"
+dependencies = [
+ "dtoa",
+ "linked-hash-map",
+ "serde",
+ "yaml-rust",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.8.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7baae0a99f1a324984bcdc5f0718384c1f69775f1c7eec8b859b71b443e3fd7"
 dependencies = [
  "dtoa",
  "linked-hash-map",
