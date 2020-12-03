@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use std::mem::ManuallyDrop;
 
 use crate::{gfx::*, windowing::window::Window};

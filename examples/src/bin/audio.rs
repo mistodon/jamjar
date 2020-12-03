@@ -1,3 +1,6 @@
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 use jamjar_examples::gen::{data::VOLUMES, Audio};
 
 use jamjar::{
@@ -5,11 +8,29 @@ use jamjar::{
     resource,
 };
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(inline_js = r#"
+export function get_time() {
+  return performance.now() / 1000.0;
+}"#)]
+extern "C" {
+    fn get_time() -> f64;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn get_time() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs_f64()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_main() {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_log::init_with_level(log::Level::Debug).unwrap();
+    main();
 }
 
 fn main() {

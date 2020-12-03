@@ -1,15 +1,10 @@
 use std::{
-    borrow::Cow,
-    cmp::Eq,
-    collections::HashMap,
-    hash::Hash,
-    io::Cursor,
-    sync::{
-        mpsc::{self, Receiver, Sender},
-        Arc,
-    },
+    borrow::Cow, cmp::Eq, collections::HashMap, hash::Hash, io::Cursor, sync::Arc,
     thread::JoinHandle,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 
@@ -71,16 +66,21 @@ enum AudioCmd<K: Clone> {
     UpdateVolumes(AudioVolumes<K>),
 }
 
-pub struct Mixer<K: Clone + Send + Eq + Hash> {
+pub struct Mixer<K: 'static + Clone + Send + Eq + Hash> {
+    #[cfg(not(target_arch = "wasm32"))]
     sender: Sender<AudioCmd<K>>,
-    thread: Option<JoinHandle<()>>,
+
+    #[cfg(target_arch = "wasm32")]
+    speaker: Speaker<K>,
+
+    _thread: Option<JoinHandle<()>>,
     initialized: bool,
 }
 
-impl<K: Clone + Send + Eq + Hash> Drop for Mixer<K> {
+impl<K: 'static + Clone + Send + Eq + Hash> Drop for Mixer<K> {
     fn drop(&mut self) {
-        if let Some(thread) = self.thread.take() {
-            self.sender.send(AudioCmd::Quit).unwrap();
+        if let Some(thread) = self._thread.take() {
+            self.send(AudioCmd::Quit);
             thread.join().unwrap();
         }
     }
@@ -88,23 +88,35 @@ impl<K: Clone + Send + Eq + Hash> Drop for Mixer<K> {
 
 impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     pub fn new(audio_library: AudioLibrary<K>, audio_volumes: Option<AudioVolumes<K>>) -> Self {
-        let (sender, receiver) = mpsc::channel();
-
         let audio_volumes = audio_volumes.unwrap_or_default();
 
-        // TODO: Allow dummy mixer and return None
-        let thread = {
-            let thread = std::thread::spawn(move || {
-                let mut speaker = Speaker::new(receiver, audio_library, audio_volumes);
-                while speaker.listen() {}
-            });
-            Some(thread)
-        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (sender, receiver) = mpsc::channel();
 
-        Mixer {
-            sender,
-            thread,
-            initialized: false,
+            let _thread = {
+                let thread = std::thread::spawn(move || {
+                    let mut speaker = Speaker::new(receiver, audio_library, audio_volumes);
+                    while speaker.listen() {}
+                });
+                Some(thread)
+            };
+
+            Mixer {
+                sender,
+                _thread,
+                initialized: false,
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let speaker = Speaker::new(audio_library, audio_volumes);
+            Mixer {
+                speaker,
+                _thread: None,
+                initialized: false,
+            }
         }
     }
 
@@ -114,7 +126,7 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
 
     pub fn init(&mut self) {
         if !self.initialized {
-            self.sender.send(AudioCmd::Prewarm).unwrap();
+            self.send(AudioCmd::Prewarm);
             self.initialized = true;
         }
     }
@@ -148,15 +160,25 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     }
 
     fn send(&mut self, cmd: AudioCmd<K>) {
-        assert!(self.initialized);
-        if self.thread.is_some() {
+        assert!(
+            self.initialized || matches!(cmd, AudioCmd::Prewarm),
+            "Mixer must have `init()` called before playing sound"
+        );
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if self._thread.is_some() {
             self.sender.send(cmd).unwrap();
         }
+
+        #[cfg(target_arch = "wasm32")]
+        self.speaker.process(cmd);
     }
 }
 
 struct Speaker<K: Clone + Send + Eq + Hash> {
+    #[cfg(not(target_arch = "wasm32"))]
     receiver: Receiver<AudioCmd<K>>,
+
     context: Option<(OutputStream, OutputStreamHandle)>,
     sound_volume: f32,
     track_volume: f32,
@@ -168,11 +190,12 @@ struct Speaker<K: Clone + Send + Eq + Hash> {
 
 impl<K: Clone + Send + Eq + Hash> Speaker<K> {
     pub fn new(
-        receiver: Receiver<AudioCmd<K>>,
+        #[cfg(not(target_arch = "wasm32"))] receiver: Receiver<AudioCmd<K>>,
         library: AudioLibrary<K>,
         volumes: AudioVolumes<K>,
     ) -> Self {
         Speaker {
+            #[cfg(not(target_arch = "wasm32"))]
             receiver,
             context: None,
             sound_volume: 1.0,
@@ -197,8 +220,13 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(&mut self) -> bool {
         let cmd = self.receiver.recv().unwrap();
+        self.process(cmd)
+    }
+
+    pub fn process(&mut self, cmd: AudioCmd<K>) -> bool {
         match cmd {
             AudioCmd::Quit => return false,
             AudioCmd::Prewarm => self.warm(),
