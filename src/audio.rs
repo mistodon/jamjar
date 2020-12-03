@@ -4,11 +4,11 @@ use std::{
     collections::HashMap,
     hash::Hash,
     io::Cursor,
-    thread::JoinHandle,
     sync::{
+        mpsc::{self, Receiver, Sender},
         Arc,
-        mpsc::{self, Sender, Receiver},
     },
+    thread::JoinHandle,
 };
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
@@ -38,36 +38,43 @@ pub struct Sound<K> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Track<K> {
+pub struct Track<K: Clone> {
     pub key: K,
     pub volume: f32,
     pub playing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AudioState<K> {
+pub struct AudioState<'a, K: Clone> {
+    pub sound_volume: f32,
+    pub track_volume: f32,
+    pub tracks: &'a [Track<K>],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct StateUpdate<K: Clone> {
     pub sound_volume: f32,
     pub track_volume: f32,
     pub tracks: [Option<Track<K>>; 4],
 }
 
 #[derive(Debug, Clone)]
-pub enum AudioCmd<K> {
+enum AudioCmd<K: Clone> {
     Quit,
     Prewarm,
-    State(AudioState<K>),
+    State(StateUpdate<K>),
     PlaySound(Sound<K>),
     UpdateAudioLibrary(AudioLibrary<K>, bool),
     // TODO: UpdateVolumes()
 }
 
-pub struct Mixer<K: Send + Eq + Hash> {
+pub struct Mixer<K: Clone + Send + Eq + Hash> {
     sender: Sender<AudioCmd<K>>,
     thread: Option<JoinHandle<()>>,
     initialized: bool,
 }
 
-impl<K: Send + Eq + Hash> Drop for Mixer<K> {
+impl<K: Clone + Send + Eq + Hash> Drop for Mixer<K> {
     fn drop(&mut self) {
         if let Some(thread) = self.thread.take() {
             self.sender.send(AudioCmd::Quit).unwrap();
@@ -76,7 +83,7 @@ impl<K: Send + Eq + Hash> Drop for Mixer<K> {
     }
 }
 
-impl<K: 'static + Send + Eq + Hash> Mixer<K> {
+impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     pub fn new(audio_library: AudioLibrary<K>) -> Self {
         let (sender, receiver) = mpsc::channel();
 
@@ -89,7 +96,11 @@ impl<K: 'static + Send + Eq + Hash> Mixer<K> {
             Some(thread)
         };
 
-        Mixer { sender, thread, initialized: false }
+        Mixer {
+            sender,
+            thread,
+            initialized: false,
+        }
     }
 
     pub fn initialized(&self) -> bool {
@@ -103,7 +114,29 @@ impl<K: 'static + Send + Eq + Hash> Mixer<K> {
         }
     }
 
-    pub fn send(&mut self, cmd: AudioCmd<K>) {
+    pub fn update_state(&mut self, state: AudioState<K>) {
+        let state = StateUpdate {
+            sound_volume: state.sound_volume,
+            track_volume: state.track_volume,
+            tracks: [
+                state.tracks.get(0).cloned(),
+                state.tracks.get(1).cloned(),
+                state.tracks.get(2).cloned(),
+                state.tracks.get(3).cloned(),
+            ],
+        };
+        self.send(AudioCmd::State(state))
+    }
+
+    pub fn play_sound(&mut self, sound: Sound<K>) {
+        self.send(AudioCmd::PlaySound(sound))
+    }
+
+    pub fn update_library(&mut self, library: AudioLibrary<K>, restart_tracks: bool) {
+        self.send(AudioCmd::UpdateAudioLibrary(library, restart_tracks))
+    }
+
+    fn send(&mut self, cmd: AudioCmd<K>) {
         assert!(self.initialized);
         if self.thread.is_some() {
             self.sender.send(cmd).unwrap();
@@ -113,7 +146,7 @@ impl<K: 'static + Send + Eq + Hash> Mixer<K> {
 
 pub const MAX_TRACKS: usize = 4;
 
-struct Speaker<K: Send + Eq + Hash> {
+struct Speaker<K: Clone + Send + Eq + Hash> {
     receiver: Receiver<AudioCmd<K>>,
     context: Option<(OutputStream, OutputStreamHandle)>,
     sound_volume: f32,
@@ -123,7 +156,7 @@ struct Speaker<K: Send + Eq + Hash> {
     sinks: [Option<Sink>; MAX_TRACKS],
 }
 
-impl<K: Send + Eq + Hash> Speaker<K> {
+impl<K: Clone + Send + Eq + Hash> Speaker<K> {
     pub fn new(receiver: Receiver<AudioCmd<K>>, library: AudioLibrary<K>) -> Self {
         Speaker {
             receiver,
@@ -159,8 +192,7 @@ impl<K: Send + Eq + Hash> Speaker<K> {
                 if restart {
                     self.restart_all_tracks();
                 }
-            }
-            // TODO: "Mixer" config
+            } // TODO: "Mixer" config
         }
         true
     }
@@ -221,8 +253,7 @@ impl<K: Send + Eq + Hash> Speaker<K> {
         let audio_bytes = self.library.get(&track.key);
         if let Some(audio_bytes) = audio_bytes {
             let cursor = Cursor::new(audio_bytes.clone());
-            let source = Decoder::new(cursor)
-                .unwrap();
+            let source = Decoder::new(cursor).unwrap();
 
             if let Some((_, handle)) = self.context.as_ref() {
                 let sink = Sink::try_new(handle).unwrap();

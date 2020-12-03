@@ -27,7 +27,10 @@ fn main() {
         jamjar::windowing::window_and_event_loop("Window Test", [512, 256]).unwrap();
 
     use jamjar_examples::gen::data::*;
-    let static_data = format!("Numbers: {:?}\nNumeri: {:?}\nConfig: {:?}", &&**NUMBERS, &&**NUMERI, &&**CONFIG);
+    let static_data = format!(
+        "Numbers: {:?}\nNumeri: {:?}\nConfig: {:?}",
+        &&**NUMBERS, &&**NUMERI, &&**CONFIG
+    );
     say(static_data);
 
     event_loop.run(move |event, _, control_flow| {
@@ -35,7 +38,9 @@ fn main() {
 
         match event {
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit,
+                WindowEvent::CloseRequested => {
+                    *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit
+                }
                 _ => (),
             },
             Event::MainEventsCleared => {

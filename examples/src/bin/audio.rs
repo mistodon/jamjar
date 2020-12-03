@@ -1,7 +1,7 @@
 use jamjar_examples::gen::Audio;
 
 use jamjar::{
-    audio::{AudioCmd, AudioState, Mixer, Sound, Track},
+    audio::{AudioState, Mixer, Sound, Track},
     resource,
 };
 
@@ -40,11 +40,11 @@ fn main() {
                             time_at_change = mock_time;
                             track_toggle = !track_toggle;
 
-                            mixer.send(AudioCmd::PlaySound(Sound {
+                            mixer.play_sound(Sound {
                                 key: Audio::Chime,
                                 volume: 1.0,
                                 speed: 1.0,
-                            }));
+                            });
                         } else {
                             mixer.init();
                         }
@@ -61,24 +61,22 @@ fn main() {
                 let volume1 = if track_toggle { fade_in } else { fade_out };
 
                 if mixer.initialized() {
-                    mixer.send(AudioCmd::State(AudioState {
+                    mixer.update_state(AudioState {
                         sound_volume: 1.0,
                         track_volume: 1.0,
-                        tracks: [
-                            Some(Track {
+                        tracks: &[
+                            Track {
                                 key: Audio::Groove,
                                 volume: volume0,
                                 playing: volume0 > 0.0,
-                            }),
-                            Some(Track {
+                            },
+                            Track {
                                 key: Audio::Duelling,
                                 volume: volume1,
                                 playing: volume1 > 0.0,
-                            }),
-                            None,
-                            None,
+                            },
                         ],
-                    }));
+                    });
                 }
 
                 window.request_redraw();

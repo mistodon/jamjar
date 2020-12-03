@@ -1,6 +1,6 @@
 use jamjar_examples::gen::Image;
 
-use jamjar::{resource_list, resource};
+use jamjar::{resource, resource_list};
 
 fn main() {
     let heart = include_bytes!("../../assets/images/heart.png");

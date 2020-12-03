@@ -1,8 +1,8 @@
+pub use winit::*;
 use winit::{
     event_loop::EventLoop,
-    window::{WindowBuilder, Window},
+    window::{Window, WindowBuilder},
 };
-pub use winit::*;
 
 pub fn window_and_event_loop(
     title: &str,

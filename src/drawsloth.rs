@@ -89,10 +89,7 @@ impl<B: Backend> DrawContext<B> {
 impl<B: Backend> Drop for DrawContext<B> {
     fn drop(&mut self) {
         unsafe {
-            let Resources {
-                _instance,
-                surface,
-            } = ManuallyDrop::take(&mut self.resources);
+            let Resources { _instance, surface } = ManuallyDrop::take(&mut self.resources);
 
             if let Some(instance) = _instance {
                 instance.destroy_surface(surface);

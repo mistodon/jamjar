@@ -13,6 +13,8 @@ fn main() {
         eprintln!("Waiting {} seconds...", wait);
         std::thread::sleep(std::time::Duration::from_millis(wait * 1000));
 
-        unsafe { jamjar_examples::gen::data::reload_all(); }
+        unsafe {
+            jamjar_examples::gen::data::reload_all();
+        }
     }
 }

@@ -7,7 +7,9 @@ fn main() {
 
         match event {
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit,
+                WindowEvent::CloseRequested => {
+                    *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit
+                }
                 _ => (),
             },
             Event::MainEventsCleared => {
