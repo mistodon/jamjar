@@ -6,27 +6,39 @@ description = "A collection of useful crates and utilities for quickly bootstrap
 edition = "2018"
 
 [features]
-default = []
+default = ["everything"]
+audio = ["rodio"]
 codegen = ["edres"]
+drawsloth = ["gfx", "windowing"]
+drawgroovy = ["gfx", "windowing"]
+gfx = ["gfx-hal", "gfx-auxil", "gfx-backend-gl", "image"]
 reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "toml"]
+resources = ["resource"]
 windowing = ["winit"]
-everything = ["reloading", "windowing"]
+everything = ["audio", "reloading", "resources", "windowing"]
 
 [dependencies]
 dirty_static = { version = "~0.1.1", optional = true }
 edres = { version = "~0.5", optional = true, features = ["experimental-files-enum", "toml-parsing", "yaml-parsing"] }
+gfx-hal = { version = "=0.6.0", optional = true }
+image = { version = "~0.23.12", optional = true }
 lazy_static = { version = "~1.4.0", optional = true }
-resource = { version = "~0.5", optional = true }
+resource = { version = "~0.5", optional = true, features = ["experimental-resource-list"] }
 serde = { version = "~1.0.117", features = ["derive"] }
 serde_yaml = { version = "~0.8.14", optional = true }
 toml = { version = "~0.5.7", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.13.1", features = ["wasm-bindgen"] }
 dymod = { git = "https://github.com/mistodon/dymod", branch = "web", optional = true, default-features = false, features = ["force-static"] }
+gfx-auxil = { version = "=0.7.0", optional = true }
+gfx-backend-gl = { version = "~0.6.1", optional = true }
+rodio = { version = "~0.13.0", optional = true, features = ["flac", "vorbis", "wav"], default-features = false }
 winit = { version = "~0.23", optional = true, features = ["web-sys"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dymod = { git = "https://github.com/mistodon/dymod", branch = "web", optional = true }
+rodio = { version = "~0.13.0", optional = true }
 winit = { version = "~0.23", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]

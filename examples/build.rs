@@ -5,6 +5,7 @@ fn main() {
 
     jamjar::codegen::create_files_enums(&[
         ("assets/images", "src/gen/images.rs", "Image"),
+        ("assets/audio", "src/gen/audio.rs", "Audio"),
     ]).unwrap();
 
     jamjar::codegen::create_data_enums(&[

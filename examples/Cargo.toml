@@ -7,7 +7,8 @@ edition = "2018"
 [dependencies]
 toml = "*"
 serde = { version = "*", features = ["derive"] }
-jamjar = { path = "..", features = ["everything"] }
+jamjar = { path = "..", features = ["everything", "drawsloth"] }
+gfx-backend-gl = { version = "~0.6.1" }
 
 [build-dependencies]
 jamjar = { path = "..", features = ["codegen"] }

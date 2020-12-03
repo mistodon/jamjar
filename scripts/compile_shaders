@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -eu
+set -o pipefail
+
+function compile {
+    local filename=$1
+    local ext=$2
+    echo "$filename $ext"
+    glslangValidator -V assets/shaders/${filename}.${ext} -o assets/shaders/compiled/${filename}.${ext}.spv
+    spirv-cross --version 300 --es assets/shaders/compiled/${filename}.${ext}.spv > assets/shaders/compiled/${filename}.es.${ext}
+}
+
+for file in $(ls assets/shaders/*.vert); do
+    compile $(basename ${file%.*}) vert
+done
+for file in $(ls assets/shaders/*.frag); do
+    compile $(basename ${file%.*}) frag
+done

@@ -5,12 +5,15 @@ Lib:
 - [x] Re-export winit through windowing
 - [x] Build-time codegen (wrapping edres)
 - [x] Easily importing that codegen stuff
-- [ ] Resource loading (wrapping resource)
+- [x] Resource loading (wrapping resource)
 - [x] Hot-reloading assets (wrapping dirty_static and helper macros)
 - [x] Re-export resource, dirty_static, dymod, lazy_static
-- [ ] Audio module on separate thread
-    - [ ] Or same thread, if that doesn't work on wasm
+- [ ] Really simple drawing API
+- [x] Audio module on separate thread
+    - [ ] Or optionally same thread, if that doesn't work on wasm
 - [ ] Test dymod with a billion configurations and then publish
+- [ ] Include the original path for a Resource as a &'static str to allow safety checks when building resource maps
+- [ ] Scope resource_list! properly so it can find the resource! macro
 
 ## Later
 CLI:

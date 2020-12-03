@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 jamjar::generated_modules! {
+    audio,
     config,
     images,
     numbers,
