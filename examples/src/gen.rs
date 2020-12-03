@@ -16,5 +16,7 @@ jamjar::static_data_mod! {
         static NUMERI: HashMap<String, usize> = carica_numeri("assets/numeri.toml");
 
         static CONFIG: Config = load_config("assets/config.toml");
+
+        static VOLUMES: HashMap<Audio, f32> = load_volumes("assets/volumes.yaml");
     }
 }

@@ -31,6 +31,7 @@ impl AsRef<[u8]> for AudioBytes {
 }
 
 pub type AudioLibrary<K> = HashMap<K, AudioBytes>;
+pub type AudioVolumes<K> = HashMap<K, f32>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sound<K> {
@@ -66,8 +67,8 @@ enum AudioCmd<K: Clone> {
     Prewarm,
     State(StateUpdate<K>),
     PlaySound(Sound<K>),
-    UpdateAudioLibrary(AudioLibrary<K>, bool),
-    // TODO: UpdateVolumes()
+    UpdateLibrary(AudioLibrary<K>, bool),
+    UpdateVolumes(AudioVolumes<K>),
 }
 
 pub struct Mixer<K: Clone + Send + Eq + Hash> {
@@ -86,13 +87,15 @@ impl<K: Clone + Send + Eq + Hash> Drop for Mixer<K> {
 }
 
 impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
-    pub fn new(audio_library: AudioLibrary<K>) -> Self {
+    pub fn new(audio_library: AudioLibrary<K>, audio_volumes: Option<AudioVolumes<K>>) -> Self {
         let (sender, receiver) = mpsc::channel();
+
+        let audio_volumes = audio_volumes.unwrap_or_default();
 
         // TODO: Allow dummy mixer and return None
         let thread = {
             let thread = std::thread::spawn(move || {
-                let mut speaker = Speaker::new(receiver, audio_library);
+                let mut speaker = Speaker::new(receiver, audio_library, audio_volumes);
                 while speaker.listen() {}
             });
             Some(thread)
@@ -137,7 +140,11 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     }
 
     pub fn update_library(&mut self, library: AudioLibrary<K>, restart_tracks: bool) {
-        self.send(AudioCmd::UpdateAudioLibrary(library, restart_tracks))
+        self.send(AudioCmd::UpdateLibrary(library, restart_tracks))
+    }
+
+    pub fn update_volumes(&mut self, volumes: AudioVolumes<K>) {
+        self.send(AudioCmd::UpdateVolumes(volumes))
     }
 
     fn send(&mut self, cmd: AudioCmd<K>) {
@@ -154,18 +161,24 @@ struct Speaker<K: Clone + Send + Eq + Hash> {
     sound_volume: f32,
     track_volume: f32,
     library: AudioLibrary<K>,
+    volumes: AudioVolumes<K>,
     tracks: [Option<Track<K>>; MAX_TRACKS],
     sinks: [Option<Sink>; MAX_TRACKS],
 }
 
 impl<K: Clone + Send + Eq + Hash> Speaker<K> {
-    pub fn new(receiver: Receiver<AudioCmd<K>>, library: AudioLibrary<K>) -> Self {
+    pub fn new(
+        receiver: Receiver<AudioCmd<K>>,
+        library: AudioLibrary<K>,
+        volumes: AudioVolumes<K>,
+    ) -> Self {
         Speaker {
             receiver,
             context: None,
             sound_volume: 1.0,
             track_volume: 1.0,
             library,
+            volumes,
             tracks: [
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
                 None, None,
@@ -195,18 +208,28 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
                 self.update_tracks(audio_state.tracks);
             }
             AudioCmd::PlaySound(sound) => self.play_sound(&sound),
-            AudioCmd::UpdateAudioLibrary(library, restart) => {
+            AudioCmd::UpdateLibrary(library, restart) => {
                 self.library = library;
                 if restart {
                     self.restart_all_tracks();
                 }
-            } // TODO: "Mixer" config
+            }
+            AudioCmd::UpdateVolumes(volumes) => {
+                self.volumes = volumes;
+                for track in self.tracks.iter().zip(self.sinks.iter()) {
+                    if let (Some(track), Some(sink)) = track {
+                        let track_specific_volume = *self.volumes.get(&track.key).unwrap_or(&1.0);
+                        let volume = track_specific_volume * self.track_volume * track.volume;
+                        sink.set_volume(volume);
+                    }
+                }
+            }
         }
         true
     }
 
     fn play_sound(&self, sound: &Sound<K>) {
-        let sound_specific_volume = 1.0; // TODO
+        let sound_specific_volume = *self.volumes.get(&sound.key).unwrap_or(&1.0);
         let volume = sound_specific_volume * self.sound_volume * sound.volume;
 
         let audio_bytes = self.library.get(&sound.key);
@@ -241,7 +264,7 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
                         } else {
                             sink.pause();
                         }
-                        let track_specific_volume = 1.0; // TODO
+                        let track_specific_volume = *self.volumes.get(&new.key).unwrap_or(&1.0);
                         let volume = track_specific_volume * self.track_volume * new.volume;
                         sink.set_volume(volume);
                     } else {
@@ -255,7 +278,7 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
     }
 
     fn create_sink(&self, track: &Track<K>) -> Option<Sink> {
-        let track_specific_volume = 1.0; // TODO
+        let track_specific_volume = *self.volumes.get(&track.key).unwrap_or(&1.0);
         let volume = track_specific_volume * self.track_volume * track.volume;
 
         let audio_bytes = self.library.get(&track.key);

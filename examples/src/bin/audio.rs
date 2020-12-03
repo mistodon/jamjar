@@ -1,4 +1,4 @@
-use jamjar_examples::gen::Audio;
+use jamjar_examples::gen::{data::VOLUMES, Audio};
 
 use jamjar::{
     audio::{AudioState, Mixer, Sound, Track},
@@ -21,7 +21,7 @@ fn main() {
         &jamjar::resource_list!("assets/audio"),
     );
 
-    let mut mixer = Mixer::new(audio_library);
+    let mut mixer = Mixer::new(audio_library, Some(VOLUMES.clone()));
     let mut mock_time = get_time();
     let mut time_at_change = 0.0;
     let mut track_toggle = false;
