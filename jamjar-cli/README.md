@@ -1,4 +1,4 @@
-jamjar
+WIP jamjar - a kind of game engine thing
 ===
 
 [![Build Status](https://travis-ci.org/mistodon/jamjar.svg?branch=master)](https://travis-ci.org/mistodon/jamjar)

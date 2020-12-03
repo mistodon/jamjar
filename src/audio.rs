@@ -13,6 +13,8 @@ use std::{
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 
+pub const MAX_TRACKS: usize = 16;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioBytes(Arc<Cow<'static, [u8]>>);
 
@@ -55,7 +57,7 @@ pub struct AudioState<'a, K: Clone> {
 struct StateUpdate<K: Clone> {
     pub sound_volume: f32,
     pub track_volume: f32,
-    pub tracks: [Option<Track<K>>; 4],
+    pub tracks: [Option<Track<K>>; MAX_TRACKS],
 }
 
 #[derive(Debug, Clone)]
@@ -115,15 +117,17 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     }
 
     pub fn update_state(&mut self, state: AudioState<K>) {
+        let mut tracks = [
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
+        ];
+        for i in 0..MAX_TRACKS {
+            tracks[i] = state.tracks.get(i).cloned();
+        }
         let state = StateUpdate {
             sound_volume: state.sound_volume,
             track_volume: state.track_volume,
-            tracks: [
-                state.tracks.get(0).cloned(),
-                state.tracks.get(1).cloned(),
-                state.tracks.get(2).cloned(),
-                state.tracks.get(3).cloned(),
-            ],
+            tracks,
         };
         self.send(AudioCmd::State(state))
     }
@@ -144,8 +148,6 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     }
 }
 
-pub const MAX_TRACKS: usize = 4;
-
 struct Speaker<K: Clone + Send + Eq + Hash> {
     receiver: Receiver<AudioCmd<K>>,
     context: Option<(OutputStream, OutputStreamHandle)>,
@@ -164,8 +166,14 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
             sound_volume: 1.0,
             track_volume: 1.0,
             library,
-            tracks: [None, None, None, None],
-            sinks: [None, None, None, None],
+            tracks: [
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None, None,
+            ],
+            sinks: [
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None, None,
+            ],
         }
     }
 
@@ -270,7 +278,10 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
     }
 
     fn restart_all_tracks(&mut self) {
-        self.sinks = [None, None, None, None];
+        self.sinks = [
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
+        ];
         for (i, track) in self.tracks.iter().enumerate() {
             if let Some(track) = track {
                 self.sinks[i] = self.create_sink(track);
