@@ -6,24 +6,8 @@ use jamjar_examples::gen::{data::VOLUMES, Audio};
 use jamjar::{
     audio::{AudioState, Mixer, Sound, Track},
     resource,
+    timing::{RealClock, RealTimestamp},
 };
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(inline_js = r#"
-export function get_time() {
-  return performance.now() / 1000.0;
-}"#)]
-extern "C" {
-    fn get_time() -> f64;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_time() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64()
-}
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
@@ -43,8 +27,8 @@ fn main() {
     );
 
     let mut mixer = Mixer::new(audio_library, Some(VOLUMES.clone()));
-    let mut mock_time = get_time();
-    let mut time_at_change = 0.0;
+    let mut clock = RealClock::new_now();
+    let mut time_at_change = RealTimestamp::zero();
     let mut track_toggle = false;
 
     event_loop.run(move |event, _, control_flow| {
@@ -58,7 +42,7 @@ fn main() {
                 WindowEvent::KeyboardInput { input, .. } => {
                     if let ElementState::Pressed = input.state {
                         if mixer.initialized() {
-                            time_at_change = mock_time;
+                            time_at_change = clock.now();
                             track_toggle = !track_toggle;
 
                             mixer.play_sound(Sound {
@@ -74,9 +58,9 @@ fn main() {
                 _ => (),
             },
             Event::MainEventsCleared => {
-                mock_time = get_time();
+                let _dt = clock.update();
 
-                let fade_in = (mock_time - time_at_change).min(1.0) as f32;
+                let fade_in = clock.since(time_at_change).min(1.0) as f32;
                 let fade_out = 1.0 - fade_in;
                 let volume0 = if track_toggle { fade_out } else { fade_in };
                 let volume1 = if track_toggle { fade_in } else { fade_out };

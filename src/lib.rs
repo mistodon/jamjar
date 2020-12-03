@@ -22,5 +22,8 @@ pub use resource::*;
 #[cfg(feature = "resources")]
 pub mod resources;
 
+#[cfg(feature = "timing")]
+pub mod timing;
+
 #[cfg(feature = "windowing")]
 pub mod windowing;
