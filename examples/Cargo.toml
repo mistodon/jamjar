@@ -4,12 +4,16 @@ version = "0.1.0"
 authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
 edition = "2018"
 
+[features]
+default = ["metal"]
+opengl = ["jamjar/opengl"]
+metal = ["jamjar/metal"]
+
 [dependencies]
 image = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
 jamjar = { path = "..", features = ["everything", "drawsloth"] }
-gfx-backend-gl = { version = "*" }
 
 [build-dependencies]
 jamjar = { path = "..", features = ["codegen"] }

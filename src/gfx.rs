@@ -130,18 +130,20 @@ pub unsafe fn upload_image<B: Backend>(
 
     let texture_fence = device.create_fence(false).expect("TODO");
 
-    let row_alignment_mask =
-        physical_device.limits().optimal_buffer_copy_pitch_alignment as u32 - 1;
+    let limits = physical_device.limits();
+    let non_coherent_alignment = limits.non_coherent_atom_size as u64;
+    let row_alignment_mask = limits.optimal_buffer_copy_pitch_alignment as u32 - 1;
 
     let image_stride = 4usize;
     let row_pitch = (image_width * image_stride as u32 + row_alignment_mask) & !row_alignment_mask;
     let upload_size = (image_height * row_pitch) as u64;
+    let padded_upload_size = ((upload_size + non_coherent_alignment - 1) / non_coherent_alignment)
+        * non_coherent_alignment;
 
-    // TODO: Ensure aligned to `limits.non_coherent_atom_size`
     let (buffer_memory, buffer) = make_buffer::<B>(
         device,
         physical_device,
-        upload_size as usize,
+        padded_upload_size as usize,
         gfx_hal::buffer::Usage::TRANSFER_SRC,
         Properties::CPU_VISIBLE,
     );
@@ -185,10 +187,7 @@ pub unsafe fn upload_image<B: Backend>(
             families: None,
             range: SubresourceRange {
                 aspects: Aspects::COLOR,
-                level_start: 0,
-                level_count: None,
-                layer_start: 0,
-                layer_count: None,
+                ..Default::default()
             },
         };
 
@@ -227,10 +226,7 @@ pub unsafe fn upload_image<B: Backend>(
             families: None,
             range: SubresourceRange {
                 aspects: Aspects::COLOR,
-                level_start: 0,
-                level_count: None,
-                layer_start: 0,
-                layer_count: None,
+                ..Default::default()
             },
         };
 
@@ -256,4 +252,5 @@ pub unsafe fn upload_image<B: Backend>(
     // Cleanup staging resources
     device.destroy_buffer(buffer);
     device.free_memory(buffer_memory);
+    device.destroy_fence(texture_fence);
 }

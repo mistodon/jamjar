@@ -10,6 +10,9 @@ use crate::{
     },
 };
 
+#[cfg(all(target_arch = "wasm32", not(feature = "opengl")))]
+compile_error!("Web builds (wasm32) require the `opengl` feature to be enabled.");
+
 #[cfg(not(target_arch = "wasm32"))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
     include_bytes!("../assets/shaders/compiled/sloth.vert.spv"),
@@ -22,9 +25,55 @@ const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
     include_bytes!("../assets/shaders/compiled/sloth.es.frag"),
 );
 
+#[cfg(feature = "opengl")]
+pub type OpenGL = gfx_backend_gl::Backend;
+#[cfg(feature = "metal")]
+pub type Metal = gfx_backend_metal::Backend;
+
+#[cfg(feature = "metal")]
+pub type Native = Metal;
+
 fn wiperr<T>(_: T) -> () {}
 
-struct Resources<B: Backend> {
+pub trait SupportedBackend: Backend {
+    unsafe fn make_shader_module(
+        device: &<Self as Backend>::Device,
+        source: &[u8],
+        is_fragment: bool,
+    ) -> <Self as Backend>::ShaderModule {
+        debug_assert!(source.len() % 4 == 0, "SPIRV not aligned");
+        let spirv = {
+            let p = source.as_ptr() as *const u32;
+            std::slice::from_raw_parts(p, source.len() / 4)
+        };
+        device.create_shader_module(spirv).unwrap()
+    }
+}
+
+#[cfg(feature = "metal")]
+impl SupportedBackend for Metal {}
+
+#[cfg(feature = "opengl")]
+impl SupportedBackend for OpenGL {
+    #[cfg(target_arch = "wasm32")]
+    unsafe fn make_shader_module(
+        device: &<Self as Backend>::Device,
+        source: &[u8],
+        is_fragment: bool,
+    ) -> <Self as Backend>::ShaderModule {
+        let source = std::str::from_utf8_unchecked(source);
+        let stage = if is_fragment {
+            gfx_auxil::ShaderStage::Fragment
+        } else {
+            gfx_auxil::ShaderStage::Vertex
+        };
+        device
+            .create_shader_module_from_source(source, stage)
+            .expect("Failed to create shader module")
+    }
+}
+
+struct Resources<B: SupportedBackend> {
     _instance: Option<B::Instance>,
     surface: B::Surface,
     command_pool: B::CommandPool,
@@ -39,7 +88,7 @@ struct Resources<B: Backend> {
     rendering_complete_semaphore: B::Semaphore,
 }
 
-pub struct Renderer<'a, B: Backend> {
+pub struct Renderer<'a, B: SupportedBackend> {
     context: &'a mut DrawContext<B>,
     clear_color: Color,
     framebuffer: Option<(
@@ -49,7 +98,7 @@ pub struct Renderer<'a, B: Backend> {
     viewport: gfx_hal::pso::Viewport,
 }
 
-impl<'a, B: Backend> Renderer<'a, B> {
+impl<'a, B: SupportedBackend> Renderer<'a, B> {
     pub fn blit(self, image: &image::RgbaImage) {
         let Resources {
             command_pool,
@@ -129,7 +178,7 @@ impl<'a, B: Backend> Renderer<'a, B> {
     }
 }
 
-impl<'a, B: Backend> Drop for Renderer<'a, B> {
+impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
     fn drop(&mut self) {
         let Resources {
             command_pool,
@@ -219,7 +268,7 @@ impl<'a, B: Backend> Drop for Renderer<'a, B> {
     }
 }
 
-pub struct DrawContext<B: Backend> {
+pub struct DrawContext<B: SupportedBackend> {
     resources: ManuallyDrop<Resources<B>>,
     adapter: Adapter<B>,
     device: B::Device,
@@ -232,67 +281,7 @@ pub struct DrawContext<B: Backend> {
     canvas_image_size: (u32, u32),
 }
 
-#[cfg(target_arch = "wasm32")]
-impl DrawContext<gfx_backend_gl::Backend> {
-    pub fn new(window: &Window) -> Result<Self, ()> {
-        let surface = gfx_backend_gl::Surface::from_raw_handle(window);
-        let adapter = surface.enumerate_adapters().remove(0);
-
-        let (device, mut queue_group) = {
-            use gfx_hal::queue::QueueFamily;
-
-            let queue_family = adapter
-                .queue_families
-                .iter()
-                .find(|family| {
-                    surface.supports_queue_family(family) && family.queue_type().supports_graphics()
-                })
-                .ok_or(())?;
-
-            let mut gpu = unsafe {
-                adapter
-                    .physical_device
-                    .open(&[(queue_family, &[1.0])], gfx_hal::Features::empty())
-                    .expect("Failed to open device")
-            };
-
-            (gpu.device, gpu.queue_groups.pop().unwrap())
-        };
-
-        let vs_module = unsafe { Self::make_shader_module(&device, SHADER_SOURCES.0, false) };
-        let fs_module = unsafe { Self::make_shader_module(&device, SHADER_SOURCES.1, true) };
-
-        Self::inner_new(
-            window,
-            None,
-            surface,
-            adapter,
-            device,
-            queue_group,
-            vs_module,
-            fs_module,
-        )
-    }
-
-    pub unsafe fn make_shader_module(
-        device: &<gfx_backend_gl::Backend as Backend>::Device,
-        source: &[u8],
-        is_fragment: bool,
-    ) -> <gfx_backend_gl::Backend as Backend>::ShaderModule {
-        let source = std::str::from_utf8_unchecked(source);
-        let stage = if is_fragment {
-            gfx_auxil::ShaderStage::Fragment
-        } else {
-            gfx_auxil::ShaderStage::Vertex
-        };
-        device
-            .create_shader_module_from_source(source, stage)
-            .expect("Failed to create shader module")
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<B: Backend> DrawContext<B> {
+impl<B: SupportedBackend> DrawContext<B> {
     pub fn new(window: &Window) -> Result<Self, ()> {
         let instance = B::Instance::create("jamjar_drawsloth", 1).map_err(wiperr)?;
         let surface = unsafe { instance.create_surface(window).map_err(wiperr)? };
@@ -319,8 +308,8 @@ impl<B: Backend> DrawContext<B> {
             (gpu.device, gpu.queue_groups.pop().unwrap())
         };
 
-        let vs_module = unsafe { Self::make_shader_module(&device, SHADER_SOURCES.0, false) };
-        let fs_module = unsafe { Self::make_shader_module(&device, SHADER_SOURCES.1, true) };
+        let vs_module = unsafe { B::make_shader_module(&device, SHADER_SOURCES.0, false) };
+        let fs_module = unsafe { B::make_shader_module(&device, SHADER_SOURCES.1, true) };
 
         Self::inner_new(
             window,
@@ -334,21 +323,6 @@ impl<B: Backend> DrawContext<B> {
         )
     }
 
-    pub unsafe fn make_shader_module(
-        device: &B::Device,
-        source: &[u8],
-        is_fragment: bool,
-    ) -> B::ShaderModule {
-        debug_assert!(source.len() % 4 == 0, "SPIRV not aligned");
-        let spirv = {
-            let p = source.as_ptr() as *const u32;
-            std::slice::from_raw_parts(p, source.len() / 4)
-        };
-        device.create_shader_module(spirv).unwrap()
-    }
-}
-
-impl<B: Backend> DrawContext<B> {
     fn inner_new(
         window: &Window,
         instance: Option<B::Instance>,
@@ -397,14 +371,14 @@ impl<B: Backend> DrawContext<B> {
 
         let canvas_image_size = logical_size.into();
         let canvas_image = unsafe {
-            use gfx_hal::format::Aspects;
+            use gfx_hal::format::{Aspects, Format};
             use gfx_hal::image::Usage;
 
             gfx::make_image::<B>(
                 &device,
                 &adapter.physical_device,
                 canvas_image_size,
-                surface_color_format,
+                Format::Rgba8Srgb,
                 Usage::SAMPLED | Usage::TRANSFER_DST,
                 Aspects::COLOR,
             )
@@ -769,7 +743,7 @@ impl<B: Backend> DrawContext<B> {
     }
 }
 
-impl<B: Backend> Drop for DrawContext<B> {
+impl<B: SupportedBackend> Drop for DrawContext<B> {
     fn drop(&mut self) {
         unsafe {
             let Resources {
