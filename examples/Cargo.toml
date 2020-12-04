@@ -5,16 +5,17 @@ authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
 edition = "2018"
 
 [dependencies]
+image = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
 jamjar = { path = "..", features = ["everything", "drawsloth"] }
-gfx-backend-gl = { version = "~0.6.1" }
+gfx-backend-gl = { version = "*" }
 
 [build-dependencies]
 jamjar = { path = "..", features = ["codegen"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "~0.1.6"
-console_log = "~0.2"
-log = "~0.4.11"
-wasm-bindgen = "~0.2.69"
+console_error_panic_hook = "*"
+console_log = "*"
+log = "*"
+wasm-bindgen = "*"

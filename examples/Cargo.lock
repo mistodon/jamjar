@@ -1138,6 +1138,7 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "gfx-backend-gl",
+ "image",
  "jamjar",
  "log",
  "serde",

@@ -1,6 +1,6 @@
 pub use winit::*;
 use winit::{
-    event_loop::EventLoop,
+    event_loop::{EventLoop, EventLoopWindowTarget},
     window::{Window, WindowBuilder},
 };
 
@@ -14,7 +14,7 @@ pub fn window_and_event_loop(
 }
 
 pub fn window(
-    event_loop: &EventLoop<()>,
+    event_loop: &EventLoopWindowTarget<()>,
     title: &str,
     logical_size: [u32; 2],
 ) -> Result<Window, winit::error::OsError> {

@@ -8,9 +8,17 @@ Lib:
 - [x] Resource loading (wrapping resource)
 - [x] Hot-reloading assets (wrapping dirty_static and helper macros)
 - [x] Re-export resource, dirty_static, dymod, lazy_static
-- [ ] Really simple drawing API
+- [ ] Really simple drawing API: drawsloth
+    - [x] Draw something
+    - [ ] Get window resizing working
+    - [ ] Animate stuff
+    - [ ] Get fullscreen working
+    - [ ] Get webgl canvas resizing working
+    - [ ] Get itch.io fullscreen working
+    - [ ] Test with metal instead of GL
+    - [ ] Add native-with-fallback capability
 - [x] Audio module on separate thread
-    - [ ] Or optionally same thread, if that doesn't work on wasm
+    - [x] Or optionally same thread, if that doesn't work on wasm
 - [ ] Test dymod with a billion configurations and then publish
 - [ ] Include the original path for a Resource as a &'static str to allow safety checks when building resource maps
 - [ ] Scope resource_list! properly so it can find the resource! macro
