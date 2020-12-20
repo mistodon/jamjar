@@ -10,6 +10,9 @@ pub mod drawsloth;
 #[cfg(feature = "gfx")]
 pub mod gfx;
 
+#[cfg(feature = "math")]
+pub mod math;
+
 #[cfg(feature = "reloading")]
 pub mod reloading;
 #[cfg(feature = "reloading")]

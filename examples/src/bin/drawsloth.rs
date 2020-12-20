@@ -14,7 +14,7 @@ fn main() {
         jamjar::windowing::window_and_event_loop("Window Test", [512, 256]).unwrap();
 
     let mut context =
-        jamjar::drawsloth::DrawContext::<jamjar::drawsloth::Native>::new(&window).unwrap();
+        jamjar::drawsloth::DrawContext::<jamjar::gfx::backend::Whatever>::new(&window).unwrap();
 
     let src_image = image::load_from_memory(&jamjar::resource!("assets/images/blit.png"))
         .unwrap()

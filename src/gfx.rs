@@ -6,11 +6,65 @@ pub mod prelude {
         window::{PresentationSurface, Surface},
         Backend, Instance as _,
     };
+    pub use gfx_hal as hal;
 
     pub type Color = [f32; 4];
 }
 
+pub mod easy;
+
 use prelude::*;
+
+pub mod backend {
+    #[cfg(feature = "opengl")]
+    pub type OpenGL = gfx_backend_gl::Backend;
+    #[cfg(feature = "metal")]
+    pub type Metal = gfx_backend_metal::Backend;
+
+    #[cfg(feature = "metal")]
+    pub type Whatever = Metal;
+
+    #[cfg(all(feature = "opengl", not(any(feature = "metal"))))]
+    pub type Whatever = OpenGL;
+}
+
+pub trait SupportedBackend: Backend {
+    unsafe fn make_shader_module(
+        device: &<Self as Backend>::Device,
+        source: &[u8],
+        is_fragment: bool,
+    ) -> <Self as Backend>::ShaderModule {
+        debug_assert!(source.len() % 4 == 0, "SPIRV not aligned");
+        let spirv = {
+            let p = source.as_ptr() as *const u32;
+            std::slice::from_raw_parts(p, source.len() / 4)
+        };
+        device.create_shader_module(spirv).unwrap()
+    }
+}
+
+#[cfg(feature = "metal")]
+impl SupportedBackend for self::backend::Metal {}
+
+#[cfg(feature = "opengl")]
+impl SupportedBackend for self::backend::OpenGL {
+    #[cfg(target_arch = "wasm32")]
+    unsafe fn make_shader_module(
+        device: &<Self as Backend>::Device,
+        source: &[u8],
+        is_fragment: bool,
+    ) -> <Self as Backend>::ShaderModule {
+        let source = std::str::from_utf8_unchecked(source);
+        let stage = if is_fragment {
+            gfx_auxil::ShaderStage::Fragment
+        } else {
+            gfx_auxil::ShaderStage::Vertex
+        };
+        device
+            .create_shader_module_from_source(source, stage)
+            .expect("Failed to create shader module")
+    }
+}
 
 pub unsafe fn make_buffer<B: Backend>(
     device: &B::Device,

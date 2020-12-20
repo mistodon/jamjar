@@ -750,6 +750,7 @@ dependencies = [
 [[package]]
 name = "gfx-auxil"
 version = "0.5.0"
+source = "git+https://github.com/mistodon/gfx?branch=mistodon#c9fe0fb1ed9fdf1c1714ac4ec73846db08a39f37"
 dependencies = [
  "fxhash",
  "gfx-hal",
@@ -759,6 +760,7 @@ dependencies = [
 [[package]]
 name = "gfx-backend-gl"
 version = "0.6.0"
+source = "git+https://github.com/mistodon/gfx?branch=mistodon#c9fe0fb1ed9fdf1c1714ac4ec73846db08a39f37"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -780,6 +782,7 @@ dependencies = [
 [[package]]
 name = "gfx-backend-metal"
 version = "0.6.0"
+source = "git+https://github.com/mistodon/gfx?branch=mistodon#c9fe0fb1ed9fdf1c1714ac4ec73846db08a39f37"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -803,6 +806,7 @@ dependencies = [
 [[package]]
 name = "gfx-hal"
 version = "0.6.0"
+source = "git+https://github.com/mistodon/gfx?branch=mistodon#c9fe0fb1ed9fdf1c1714ac4ec73846db08a39f37"
 dependencies = [
  "bitflags",
  "naga",
@@ -941,6 +945,7 @@ dependencies = [
  "gfx-hal",
  "image",
  "lazy_static",
+ "okmath",
  "resource",
  "rodio",
  "serde",
@@ -1530,6 +1535,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "okmath"
+version = "0.1.0"
+source = "git+https://github.com/mistodon/okmath#aac225619189bea47150f1024a55b33d145d1e38"
+
+[[package]]
 name = "once_cell"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1657,6 +1667,7 @@ dependencies = [
 [[package]]
 name = "range-alloc"
 version = "0.1.1"
+source = "git+https://github.com/mistodon/gfx?branch=mistodon#c9fe0fb1ed9fdf1c1714ac4ec73846db08a39f37"
 
 [[package]]
 name = "raw-window-handle"

@@ -22,6 +22,7 @@ Lib:
 - [ ] Test dymod with a billion configurations and then publish
 - [ ] Include the original path for a Resource as a &'static str to allow safety checks when building resource maps
 - [ ] Scope resource_list! properly so it can find the resource! macro
+- [ ] Ignore unused imports in generated edres files
 
 ## Later
 CLI:
