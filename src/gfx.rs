@@ -2,11 +2,14 @@ pub mod prelude {
     pub use gfx_hal::{
         adapter::{Adapter, PhysicalDevice},
         device::Device,
+        format::Format,
+        pso::ShaderStageFlags,
         queue::QueueGroup,
         window::{PresentationSurface, Surface},
         Backend, Instance as _,
     };
     pub use gfx_hal as hal;
+    pub use hal::prelude::*;
 
     pub type Color = [f32; 4];
 }
@@ -32,7 +35,7 @@ pub trait SupportedBackend: Backend {
     unsafe fn make_shader_module(
         device: &<Self as Backend>::Device,
         source: &[u8],
-        is_fragment: bool,
+        _is_fragment: bool,
     ) -> <Self as Backend>::ShaderModule {
         debug_assert!(source.len() % 4 == 0, "SPIRV not aligned");
         let spirv = {
@@ -227,7 +230,6 @@ pub unsafe fn upload_image<B: Backend>(
         use gfx_hal::command::{BufferImageCopy, CommandBufferFlags, Level};
         use gfx_hal::image::{Access, Extent, Layout, Offset, SubresourceLayers};
         use gfx_hal::memory::{Barrier, Dependencies};
-        use gfx_hal::pool::CommandPool;
         use gfx_hal::pso::PipelineStage;
 
         let mut command_buffer = command_pool.allocate_one(Level::Primary);
@@ -294,17 +296,22 @@ pub unsafe fn upload_image<B: Backend>(
         command_buffer
     };
 
-    use gfx_hal::queue::CommandQueue;
     queue.submit_without_semaphores(vec![&command_buffer], Some(&texture_fence));
 
     // TODO: Don't wait forever
     device.wait_for_fence(&texture_fence, !0).expect("TODO");
 
-    use gfx_hal::command::CommandBuffer;
-    // command_buffer.reset(true); // TODO: Why does this crash on DX12?
-
     // Cleanup staging resources
     device.destroy_buffer(buffer);
     device.free_memory(buffer_memory);
     device.destroy_fence(texture_fence);
+}
+
+pub unsafe fn push_constant_bytes<T>(push_constants: &T) -> &[u32] {
+    let size_in_bytes = std::mem::size_of::<T>();
+    let push_constant_size = std::mem::size_of::<u32>();
+    assert!(size_in_bytes % push_constant_size == 0, "push constant struct not a multiple of four bytes");
+    let size_in_u32s = size_in_bytes / push_constant_size;
+    let start_ptr = push_constants as *const T as *const u32;
+    std::slice::from_raw_parts(start_ptr, size_in_u32s)
 }

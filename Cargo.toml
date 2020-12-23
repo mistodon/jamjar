@@ -12,17 +12,19 @@ codegen = ["edres"]
 drawsloth = ["gfx", "windowing"]
 drawgroovy = ["gfx", "windowing"]
 gfx = ["gfx-hal", "gfx-auxil", "image"]
+input = ["buttons", "windowing"]
 math = ["okmath"]
 reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "toml"]
 resources = ["resource"]
 timing = ["wasm-bindgen"]
 windowing = ["winit"]
-everything = ["audio", "math", "reloading", "resources", "timing", "windowing"]
+everything = ["audio", "input", "math", "reloading", "resources", "timing", "windowing"]
 
 opengl = ["gfx-backend-gl"]
 metal = ["gfx-backend-metal"]
 
 [dependencies]
+buttons = { version = "~0.3.1", features = ["winit-support"], optional = true }
 dirty_static = { version = "~0.1.1", optional = true }
 edres = { version = "~0.5", optional = true, features = ["experimental-files-enum", "toml-parsing", "yaml-parsing"] }
 gfx-hal = { git = "https://github.com/mistodon/gfx", branch = "mistodon", optional = true }
@@ -39,14 +41,14 @@ toml = { version = "~0.5.7", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 cpal = { version = "0.13.1", features = ["wasm-bindgen"] }
-dymod = { git = "https://github.com/mistodon/dymod", branch = "web", optional = true, default-features = false, features = ["force-static"] }
+dymod = { version = "~0.3", optional = true, default-features = false, features = ["force-static"] }
 gfx-auxil = { git = "https://github.com/mistodon/gfx", branch = "mistodon", optional = true }
 wasm-bindgen = { version = "~0.2.69", optional = true }
-winit = { version = "~0.23", optional = true, features = ["web-sys"] }
+winit = { version = "~0.24", optional = true, features = ["web-sys"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-dymod = { git = "https://github.com/mistodon/dymod", branch = "web", optional = true }
-winit = { version = "~0.23", optional = true }
+dymod = { version = "~0.3", optional = true }
+winit = { version = "~0.24", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
 version = "0.3.6"

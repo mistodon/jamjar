@@ -10,6 +10,9 @@ pub mod drawsloth;
 #[cfg(feature = "gfx")]
 pub mod gfx;
 
+#[cfg(feature = "input")]
+pub mod input;
+
 #[cfg(feature = "math")]
 pub mod math;
 

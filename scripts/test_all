@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -eu
+set -o pipefail
+
+cargo check
+cargo check --no-default-features
+cargo check --features everything,gfx,metal
+cargo test --features everything,gfx,metal
+
+(cd jamjar_examples && cargo check)

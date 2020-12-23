@@ -8,7 +8,7 @@ pub fn init<B: Backend>(
     (
         B::Instance,
         B::Surface,
-        gfx_hal::format::Format,
+        Format,
         Adapter<B>,
         B::Device,
         QueueGroup<B>,
@@ -25,7 +25,7 @@ pub fn init<B: Backend>(
     let adapter = instance.enumerate_adapters().remove(0);
 
     let surface_color_format = {
-        use gfx_hal::format::{ChannelType, Format};
+        use gfx_hal::format::ChannelType;
 
         let supported_formats = surface
             .supported_formats(&adapter.physical_device)
@@ -40,8 +40,6 @@ pub fn init<B: Backend>(
     };
 
     let (device, queue_group) = {
-        use gfx_hal::queue::QueueFamily;
-
         let queue_family = adapter
             .queue_families
             .iter()
@@ -216,11 +214,177 @@ pub fn desc_sets<B: Backend>(
     (layout, pool, desc_sets)
 }
 
+pub fn render_pass<B: Backend>(
+    device: &B::Device,
+    surface_color_format: Format,
+    depth_format: Option<Format>,
+) -> B::RenderPass {
+    use gfx_hal::image::Layout;
+    use gfx_hal::pass::{
+        Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc,
+    };
+
+    let color_attachment = Attachment {
+        format: Some(surface_color_format),
+        samples: 1,
+        ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::Store),
+        stencil_ops: AttachmentOps::DONT_CARE,
+        layouts: Layout::Undefined..Layout::Present,
+    };
+
+    let depth_attachment = depth_format.map(|surface_depth_format| {
+        Attachment {
+            format: Some(surface_depth_format),
+            samples: 1,
+            ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::DontCare),
+            stencil_ops: AttachmentOps::DONT_CARE,
+            layouts: Layout::Undefined..Layout::DepthStencilAttachmentOptimal,
+        }
+    });
+
+
+    let subpass = SubpassDesc {
+        colors: &[(0, Layout::ColorAttachmentOptimal)],
+        depth_stencil: depth_format.map(|_| &(1, Layout::DepthStencilAttachmentOptimal)),
+        inputs: &[],
+        resolves: &[],
+        preserves: &[],
+    };
+
+    unsafe {
+        let attachments = match depth_attachment {
+            Some(depth_attachment) => vec![color_attachment, depth_attachment],
+            None => vec![color_attachment],
+        };
+        device
+            .create_render_pass(&attachments, &[subpass], &[])
+            .expect("out of memory")
+    }
+}
+
+pub fn pipeline<B: SupportedBackend>(
+    device: &B::Device,
+    desc_layout: Option<&B::DescriptorSetLayout>,
+    push_constant_size: u32,
+    vs_bytes: &[u8],
+    fs_bytes: &[u8],
+    render_pass: &B::RenderPass,
+    depth_format: Option<Format>,
+    attribute_sizes: &[u32],
+) -> (B::GraphicsPipeline, B::PipelineLayout) {
+    use gfx_hal::pso::*;
+
+    let push = &[(
+        ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+        0..push_constant_size,
+    )];
+    let push: &[_] = if push_constant_size > 0 { push } else { &[] };
+
+    let pipeline_layout = unsafe {
+        device
+            .create_pipeline_layout(desc_layout, push)
+            .expect("out of memory")
+    };
+
+    let shader_modules = [(vs_bytes, false), (fs_bytes, true)]
+        .iter()
+        .map(|&(bytes, is_frag)| unsafe { B::make_shader_module(device, bytes, is_frag) })
+        .collect::<Vec<_>>();
+    let mut entries = shader_modules.iter().map(|module| EntryPoint::<B> {
+        entry: "main",
+        module,
+        specialization: Default::default(),
+    });
+
+    let stride = attribute_sizes.iter().sum::<u32>() * std::mem::size_of::<f32>() as u32;
+    let buffer_desc = if stride > 0 {
+        vec![VertexBufferDesc {
+            binding: 0,
+            stride,
+            rate: VertexInputRate::Vertex,
+        }]
+    } else {
+        vec![]
+    };
+
+    let mut offset = 0;
+    let mut attrs = vec![];
+    for (index, &size) in attribute_sizes.iter().enumerate() {
+        attrs.push(AttributeDesc {
+            location: index as u32,
+            binding: 0,
+            element: Element {
+                format: match size {
+                    1 => Format::R32Sfloat,
+                    2 => Format::Rg32Sfloat,
+                    3 => Format::Rgb32Sfloat,
+                    4 => Format::Rgba32Sfloat,
+                    n => panic!("invalid attribute size {}", n)
+                },
+                offset,
+            },
+        });
+        offset += size * std::mem::size_of::<f32>() as u32;
+    }
+
+    let primitive_assembler = PrimitiveAssemblerDesc::Vertex {
+        buffers: &buffer_desc,
+        attributes: &attrs,
+        input_assembler: InputAssemblerDesc::new(Primitive::TriangleList),
+        vertex: entries.next().unwrap(),
+        tessellation: None,
+        geometry: None,
+    };
+
+    let mut pipeline_desc = GraphicsPipelineDesc::new(
+        primitive_assembler,
+        Rasterizer {
+            cull_face: Face::NONE,
+            ..Rasterizer::FILL
+        },
+        entries.next(),
+        &pipeline_layout,
+        gfx_hal::pass::Subpass {
+            index: 0,
+            main_pass: &render_pass,
+        },
+    );
+
+    pipeline_desc.blender.targets.push(ColorBlendDesc {
+        mask: ColorMask::ALL,
+        blend: Some(BlendState::REPLACE),
+    });
+
+    if depth_format.is_some() {
+        pipeline_desc.depth_stencil = DepthStencilDesc {
+            depth: Some(DepthTest {
+                fun: Comparison::LessEqual,
+                write: true,
+            }),
+            depth_bounds: false,
+            stencil: None,
+        };
+    }
+
+    let pipeline = unsafe {
+        let pipeline = device
+            .create_graphics_pipeline(&pipeline_desc, None)
+            .expect("failed to create graphics pipeline");
+
+        for module in shader_modules {
+            device.destroy_shader_module(module);
+        }
+        pipeline
+    };
+
+    (pipeline, pipeline_layout)
+}
+
 pub fn reconfigure_swapchain<B: Backend>(
     surface: &mut B::Surface,
     adapter: &Adapter<B>,
     device: &B::Device,
-    surface_color_format: gfx_hal::format::Format,
+    surface_color_format: Format,
     surface_extent: &mut gfx_hal::window::Extent2D,
 ) {
     use gfx_hal::window::SwapchainConfig;
@@ -244,15 +408,12 @@ pub fn reconfigure_swapchain<B: Backend>(
     };
 }
 
-// TODO: take shaders, attributes, push constant layout, desc set layout
-pub fn create_pipeline<B: Backend>() {
-}
-
 pub fn acquire_framebuffer<B: Backend>(
     device: &B::Device,
     surface: &mut B::Surface,
     surface_extent: &gfx_hal::window::Extent2D,
     render_pass: &B::RenderPass,
+    depth_view: Option<&B::ImageView>,
 ) -> Result<
     (
         B::Framebuffer,
@@ -268,10 +429,15 @@ pub fn acquire_framebuffer<B: Backend>(
 
             use gfx_hal::image::Extent;
 
+            let mut attachments = vec![surface_image.borrow()];
+            if let Some(view) = depth_view {
+                attachments.push(view);
+            }
+
             let framebuffer = device
                 .create_framebuffer(
                     render_pass,
-                    vec![surface_image.borrow()],
+                    attachments,
                     Extent {
                         width: surface_extent.width,
                         height: surface_extent.height,
