@@ -31,5 +31,7 @@ pub mod resources;
 #[cfg(feature = "timing")]
 pub mod timing;
 
+pub mod utils;
+
 #[cfg(feature = "windowing")]
 pub mod windowing;

@@ -1,14 +1,18 @@
+use crate::utils::over;
+
 pub mod prelude {
+    pub use gfx_hal as hal;
     pub use gfx_hal::{
         adapter::{Adapter, PhysicalDevice},
+        command::RenderAttachmentInfo,
         device::Device,
         format::Format,
+        image::FramebufferAttachment,
         pso::ShaderStageFlags,
         queue::QueueGroup,
         window::{PresentationSurface, Surface},
         Backend, Instance as _,
     };
-    pub use gfx_hal as hal;
     pub use hal::prelude::*;
 
     pub type Color = [f32; 4];
@@ -185,7 +189,7 @@ pub unsafe fn upload_image<B: Backend>(
 
     let (image_width, image_height) = image_size;
 
-    let texture_fence = device.create_fence(false).expect("TODO");
+    let mut texture_fence = device.create_fence(false).expect("TODO");
 
     let limits = physical_device.limits();
     let non_coherent_alignment = limits.non_coherent_atom_size as u64;
@@ -197,7 +201,7 @@ pub unsafe fn upload_image<B: Backend>(
     let padded_upload_size = ((upload_size + non_coherent_alignment - 1) / non_coherent_alignment)
         * non_coherent_alignment;
 
-    let (buffer_memory, buffer) = make_buffer::<B>(
+    let (mut buffer_memory, buffer) = make_buffer::<B>(
         device,
         physical_device,
         padded_upload_size as usize,
@@ -206,7 +210,7 @@ pub unsafe fn upload_image<B: Backend>(
     );
 
     let mapped_memory = device
-        .map_memory(&buffer_memory, Segment::ALL)
+        .map_memory(&mut buffer_memory, Segment::ALL)
         .expect("TODO");
 
     for y in 0..image_height as usize {
@@ -220,10 +224,10 @@ pub unsafe fn upload_image<B: Backend>(
     }
 
     device
-        .flush_mapped_memory_ranges(vec![(&buffer_memory, Segment::ALL)])
+        .flush_mapped_memory_ranges(over([(&buffer_memory, Segment::ALL)]))
         .expect("TODO");
 
-    device.unmap_memory(&buffer_memory);
+    device.unmap_memory(&mut buffer_memory);
 
     // TODO: Commands to transfer data
     let command_buffer = {
@@ -250,14 +254,14 @@ pub unsafe fn upload_image<B: Backend>(
         command_buffer.pipeline_barrier(
             PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
             Dependencies::empty(),
-            &[image_barrier],
+            over([image_barrier]),
         );
 
         command_buffer.copy_buffer_to_image(
             &buffer,
             image_resource,
             Layout::TransferDstOptimal,
-            &[BufferImageCopy {
+            over([BufferImageCopy {
                 buffer_offset: 0,
                 buffer_width: row_pitch / (image_stride as u32),
                 buffer_height: image_height as u32,
@@ -272,7 +276,7 @@ pub unsafe fn upload_image<B: Backend>(
                     height: image_height,
                     depth: 1,
                 },
-            }],
+            }]),
         );
 
         let image_barrier = Barrier::Image {
@@ -289,14 +293,19 @@ pub unsafe fn upload_image<B: Backend>(
         command_buffer.pipeline_barrier(
             PipelineStage::TRANSFER..PipelineStage::FRAGMENT_SHADER,
             Dependencies::empty(),
-            &[image_barrier],
+            over([image_barrier]),
         );
 
         command_buffer.finish();
         command_buffer
     };
 
-    queue.submit_without_semaphores(vec![&command_buffer], Some(&texture_fence));
+    queue.submit(
+        over([&command_buffer]),
+        over([]),
+        over([]),
+        Some(&mut texture_fence),
+    );
 
     // TODO: Don't wait forever
     device.wait_for_fence(&texture_fence, !0).expect("TODO");
@@ -310,7 +319,10 @@ pub unsafe fn upload_image<B: Backend>(
 pub unsafe fn push_constant_bytes<T>(push_constants: &T) -> &[u32] {
     let size_in_bytes = std::mem::size_of::<T>();
     let push_constant_size = std::mem::size_of::<u32>();
-    assert!(size_in_bytes % push_constant_size == 0, "push constant struct not a multiple of four bytes");
+    assert!(
+        size_in_bytes % push_constant_size == 0,
+        "push constant struct not a multiple of four bytes"
+    );
     let size_in_u32s = size_in_bytes / push_constant_size;
     let start_ptr = push_constants as *const T as *const u32;
     std::slice::from_raw_parts(start_ptr, size_in_u32s)

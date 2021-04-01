@@ -3,7 +3,8 @@
 use std::mem::ManuallyDrop;
 
 use crate::{
-    gfx::{self, prelude::*, SupportedBackend},
+    gfx::{self, easy, prelude::*, SupportedBackend},
+    utils::over,
     windowing::{
         dpi::{LogicalSize, PhysicalSize},
         window::Window,
@@ -89,31 +90,26 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
                 use gfx_hal::buffer::SubRange;
                 use gfx_hal::pso::{Descriptor, DescriptorSetWrite};
 
-                let image_write = DescriptorSetWrite {
-                    set: &self.context.desc_set,
-                    binding: 0,
-                    array_offset: 0,
-                    descriptors: Some(Descriptor::Image(
-                        &canvas_image.2,
-                        gfx_hal::image::Layout::Undefined,
-                    )),
-                };
-
                 #[cfg(target_arch = "wasm32")]
-                let writes = vec![image_write];
+                let descriptors = over([Descriptor::Image(
+                    &canvas_image.2,
+                    gfx_hal::image::Layout::Undefined,
+                )]);
 
                 #[cfg(not(target_arch = "wasm32"))]
-                let writes = vec![
-                    image_write,
-                    DescriptorSetWrite {
-                        set: &self.context.desc_set,
-                        binding: 1,
-                        array_offset: 0,
-                        descriptors: Some(Descriptor::Sampler(sampler.as_ref().unwrap())),
-                    },
-                ];
+                let descriptors = over([
+                    Descriptor::Image(&canvas_image.2, gfx_hal::image::Layout::Undefined),
+                    Descriptor::Sampler(sampler.as_ref().unwrap()),
+                ]);
 
-                self.context.device.write_descriptor_sets(writes);
+                self.context
+                    .device
+                    .write_descriptor_set(DescriptorSetWrite {
+                        set: &mut self.context.desc_set,
+                        binding: 0,
+                        array_offset: 0,
+                        descriptors,
+                    });
             }
         }
 
@@ -146,6 +142,8 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
         } = &mut *self.context.resources;
 
         if let Some((surface_image, framebuffer)) = self.framebuffer.take() {
+            use std::borrow::Borrow;
+
             unsafe {
                 use gfx_hal::command::{
                     ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
@@ -157,16 +155,16 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
 
                 self.context
                     .command_buffer
-                    .set_viewports(0, &[self.viewport.clone()]);
+                    .set_viewports(0, over([self.viewport.clone()]));
                 self.context
                     .command_buffer
-                    .set_scissors(0, &[self.viewport.rect]);
+                    .set_scissors(0, over([self.viewport.rect]));
 
                 self.context.command_buffer.bind_graphics_descriptor_sets(
                     pipeline_layout,
                     0,
-                    vec![&self.context.desc_set],
-                    &[],
+                    over([&self.context.desc_set]),
+                    over([]),
                 );
 
                 // TODO: Has to come before render pass for OpenGL, but after
@@ -177,11 +175,14 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     render_pass,
                     &framebuffer,
                     self.viewport.rect,
-                    &[ClearValue {
-                        color: ClearColor {
-                            float32: self.clear_color,
+                    over([RenderAttachmentInfo {
+                        image_view: surface_image.borrow(),
+                        clear_value: ClearValue {
+                            color: ClearColor {
+                                float32: self.clear_color,
+                            },
                         },
-                    }],
+                    }]),
                     SubpassContents::Inline,
                 );
 
@@ -195,21 +196,19 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                 self.context.command_buffer.end_render_pass();
                 self.context.command_buffer.finish();
 
-                use gfx_hal::queue::{CommandQueue, Submission};
+                use gfx_hal::queue::CommandQueue;
 
-                let submission = Submission {
-                    command_buffers: vec![&self.context.command_buffer],
-                    wait_semaphores: None,
-                    signal_semaphores: vec![&rendering_complete_semaphore],
-                };
-
-                self.context.queue_group.queues[0]
-                    .submit(submission, Some(&submission_complete_fence));
+                self.context.queue_group.queues[0].submit(
+                    over([&self.context.command_buffer]),
+                    over([]),
+                    over([&*rendering_complete_semaphore]),
+                    Some(submission_complete_fence),
+                );
 
                 let result = self.context.queue_group.queues[0].present(
                     surface,
                     surface_image,
-                    Some(&rendering_complete_semaphore),
+                    Some(rendering_complete_semaphore),
                 );
 
                 if result.is_err() {
@@ -231,6 +230,7 @@ pub struct DrawContext<B: SupportedBackend> {
     surface_color_format: gfx_hal::format::Format,
     desc_set: B::DescriptorSet,
     surface_extent: gfx_hal::window::Extent2D,
+    framebuffer_attachment: Option<FramebufferAttachment>,
     swapchain_invalidated: Option<()>,
     canvas_image_size: (u32, u32),
 }
@@ -373,7 +373,7 @@ impl<B: SupportedBackend> DrawContext<B> {
 
             unsafe {
                 device
-                    .create_render_pass(&[color_attachment], &[subpass], &[])
+                    .create_render_pass(over([color_attachment]), over([subpass]), over([]))
                     .expect("Out of memory")
             }
         };
@@ -397,10 +397,10 @@ impl<B: SupportedBackend> DrawContext<B> {
             };
 
             #[cfg(target_arch = "wasm32")]
-            let bindings = &[image_binding];
+            let bindings = over([image_binding]);
 
             #[cfg(not(target_arch = "wasm32"))]
-            let bindings = &[
+            let bindings = over([
                 image_binding,
                 DescriptorSetLayoutBinding {
                     binding: 1,
@@ -409,10 +409,10 @@ impl<B: SupportedBackend> DrawContext<B> {
                     stage_flags: ShaderStageFlags::FRAGMENT,
                     immutable_samplers: false,
                 },
-            ];
+            ]);
 
             device
-                .create_descriptor_set_layout(bindings, &[])
+                .create_descriptor_set_layout(bindings, over([]))
                 .expect("TODO")
         };
 
@@ -432,27 +432,27 @@ impl<B: SupportedBackend> DrawContext<B> {
             };
 
             #[cfg(target_arch = "wasm32")]
-            let desc = &[image_desc];
+            let desc = over([image_desc]);
 
             #[cfg(not(target_arch = "wasm32"))]
-            let desc = &[
+            let desc = over([
                 image_desc,
                 DescriptorRangeDesc {
                     ty: DescriptorType::Sampler,
                     count: 1,
                 },
-            ];
+            ]);
 
             device
                 .create_descriptor_pool(1, desc, DescriptorPoolCreateFlags::empty())
                 .expect("TODO")
         };
 
-        let desc_set = unsafe {
+        let mut desc_set = unsafe {
             use gfx_hal::pso::DescriptorPool;
 
             desc_set_pool
-                .allocate_set(&desc_set_layout)
+                .allocate_one(&desc_set_layout)
                 .expect("Failed to allocate descriptor set")
         };
 
@@ -460,36 +460,29 @@ impl<B: SupportedBackend> DrawContext<B> {
             use gfx_hal::buffer::SubRange;
             use gfx_hal::pso::{Descriptor, DescriptorSetWrite};
 
-            let image_write = DescriptorSetWrite {
-                set: &desc_set,
-                binding: 0,
-                array_offset: 0,
-                descriptors: Some(Descriptor::Image(
-                    &canvas_image.2,
-                    gfx_hal::image::Layout::Undefined,
-                )),
-            };
-
             #[cfg(target_arch = "wasm32")]
-            let writes = vec![image_write];
+            let descriptors = over([Descriptor::Image(
+                &canvas_image.2,
+                gfx_hal::image::Layout::Undefined,
+            )]);
 
             #[cfg(not(target_arch = "wasm32"))]
-            let writes = vec![
-                image_write,
-                DescriptorSetWrite {
-                    set: &desc_set,
-                    binding: 1,
-                    array_offset: 0,
-                    descriptors: Some(Descriptor::Sampler(sampler.as_ref().unwrap())),
-                },
-            ];
+            let descriptors = over([
+                Descriptor::Image(&canvas_image.2, gfx_hal::image::Layout::Undefined),
+                Descriptor::Sampler(sampler.as_ref().unwrap()),
+            ]);
 
-            device.write_descriptor_sets(writes);
+            device.write_descriptor_set(DescriptorSetWrite {
+                set: &mut desc_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors,
+            });
         }
 
         let pipeline_layout = unsafe {
             device
-                .create_pipeline_layout(vec![&desc_set_layout], &[])
+                .create_pipeline_layout(over([&desc_set_layout]), over([]))
                 .expect("Out of memory")
         };
 
@@ -579,6 +572,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             surface_color_format,
             surface_extent,
             desc_set,
+            framebuffer_attachment: None,
             swapchain_invalidated: Some(()),
             canvas_image_size,
         })
@@ -616,7 +610,7 @@ impl<B: SupportedBackend> DrawContext<B> {
                 .expect("Out of memory or device lost");
 
             self.device
-                .reset_fence(&submission_complete_fence)
+                .reset_fence(submission_complete_fence)
                 .expect("Out of memory");
 
             command_pool.reset(false);
@@ -636,6 +630,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             }
 
             self.surface_extent = swapchain_config.extent;
+            self.framebuffer_attachment = Some(swapchain_config.framebuffer_attachment());
 
             unsafe {
                 surface
@@ -644,46 +639,32 @@ impl<B: SupportedBackend> DrawContext<B> {
             };
         }
 
-        // We refuse to wait more than a second, to avoid hanging.
-        let acquire_timeout_ns = 1_000_000_000;
-        let framebuffer = match unsafe { surface.acquire_image(acquire_timeout_ns) } {
-            Ok((surface_image, _)) => Some(unsafe {
-                use std::borrow::Borrow;
+        let fb = easy::acquire_framebuffer::<B>(
+            &self.device,
+            surface,
+            &self.surface_extent,
+            &render_pass,
+            self.framebuffer_attachment.clone().unwrap(),
+        );
 
-                use gfx_hal::image::Extent;
-
-                let framebuffer = self
-                    .device
-                    .create_framebuffer(
-                        render_pass,
-                        vec![surface_image.borrow()],
-                        Extent {
-                            width: self.surface_extent.width,
-                            height: self.surface_extent.height,
-                            depth: 1,
-                        },
-                    )
-                    .unwrap();
-
-                (surface_image, framebuffer)
-            }),
+        let (framebuffer, viewport) = match fb {
+            Ok((framebuffer, surface_image, viewport)) => {
+                (Some((surface_image, framebuffer)), viewport)
+            }
             Err(_) => {
                 self.swapchain_invalidated = Some(());
-                None
-            }
-        };
-
-        let viewport = {
-            use gfx_hal::pso::{Rect, Viewport};
-
-            Viewport {
-                rect: Rect {
-                    x: 0,
-                    y: 0,
-                    w: self.surface_extent.width as i16,
-                    h: self.surface_extent.height as i16,
-                },
-                depth: 0.0..1.0,
+                (
+                    None,
+                    gfx_hal::pso::Viewport {
+                        rect: gfx_hal::pso::Rect {
+                            x: 0,
+                            y: 0,
+                            w: 1,
+                            h: 1,
+                        },
+                        depth: 0.0..1.0,
+                    },
+                )
             }
         };
 

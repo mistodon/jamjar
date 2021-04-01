@@ -1,3 +1,8 @@
+# Urgently
+- [x] Fix drawsloth
+- [ ] Check other features too
+- [ ] Does this work on web at all?
+
 # Development
 
 ## Next

@@ -394,7 +394,11 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
     println!("Compiling app for release:");
     {
         let mut cmd = Command::new("cargo");
-        cmd.current_dir(&cwd).arg("build").arg("--release").arg("--target").arg("wasm32-unknown-unknown");
+        cmd.current_dir(&cwd)
+            .arg("build")
+            .arg("--release")
+            .arg("--target")
+            .arg("wasm32-unknown-unknown");
 
         if let Some(bin_name) = &config.bin_name {
             cmd.arg("--bin");
@@ -425,7 +429,11 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         wasm_path.push(format!("{}.wasm", &final_bin_name));
 
         let mut cmd = Command::new("wasm-bindgen");
-        cmd.current_dir(&cwd).arg(wasm_path).arg("--out-dir").arg(&config.output_dir).arg("--web");
+        cmd.current_dir(&cwd)
+            .arg(wasm_path)
+            .arg("--out-dir")
+            .arg(&config.output_dir)
+            .arg("--web");
 
         let output = cmd.output()?;
 

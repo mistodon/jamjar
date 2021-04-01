@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::utils::over;
+
 pub fn init<B: Backend>(
     window: &crate::windowing::window::Window,
     name: &str,
@@ -155,60 +157,50 @@ pub fn desc_sets<B: Backend>(
         binding_number += 1;
     }
 
-    let (layout, pool, desc_sets) = unsafe {
-        let layout = device.create_descriptor_set_layout(bindings, &[]).unwrap();
+    let (layout, pool, mut desc_sets) = unsafe {
+        let layout = device
+            .create_descriptor_set_layout(bindings.into_iter(), over([]))
+            .unwrap();
         let mut pool = device
-            .create_descriptor_pool(sets, ranges, DescriptorPoolCreateFlags::empty())
+            .create_descriptor_pool(sets, ranges.into_iter(), DescriptorPoolCreateFlags::empty())
             .unwrap();
         let mut desc_sets = Vec::with_capacity(sets);
         for _ in 0..sets {
-            desc_sets.push(pool.allocate_set(&layout).unwrap());
+            desc_sets.push(pool.allocate_one(&layout).unwrap());
         }
         (layout, pool, desc_sets)
     };
 
-    let mut writes = vec![];
-    for (set_number, desc_set) in desc_sets.iter().enumerate() {
+    for (set_number, desc_set) in desc_sets.iter_mut().enumerate() {
         use gfx_hal::buffer::SubRange;
 
-        let mut binding_number = 0;
+        let mut descriptors = Vec::with_capacity(ubos + images + samplers);
         for i in 0..ubos {
-            writes.push(DescriptorSetWrite {
-                set: desc_set,
-                binding: binding_number,
-                array_offset: 0,
-                descriptors: Some(Descriptor::Buffer(
-                    &values[set_number].0[i],
-                    SubRange::WHOLE,
-                )),
-            });
-            binding_number += 1;
+            descriptors.push(Descriptor::Buffer(
+                &values[set_number].0[i],
+                SubRange::WHOLE,
+            ));
         }
         for i in 0..images {
-            writes.push(DescriptorSetWrite {
-                set: desc_set,
-                binding: binding_number,
-                array_offset: 0,
-                descriptors: Some(Descriptor::Image(
-                    &values[set_number].1[i],
-                    gfx_hal::image::Layout::Undefined,
-                )),
-            });
-            binding_number += 1;
+            descriptors.push(Descriptor::Image(
+                &values[set_number].1[i],
+                gfx_hal::image::Layout::Undefined,
+            ));
         }
         for i in 0..samplers {
-            writes.push(DescriptorSetWrite {
-                set: desc_set,
-                binding: binding_number,
-                array_offset: 0,
-                descriptors: Some(Descriptor::Sampler(&values[set_number].2[i])),
-            });
-            binding_number += 1;
+            descriptors.push(Descriptor::Sampler(&values[set_number].2[i]));
         }
-    }
 
-    unsafe {
-        device.write_descriptor_sets(writes);
+        unsafe {
+            if !descriptors.is_empty() {
+                device.write_descriptor_set(DescriptorSetWrite {
+                    set: desc_set,
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: descriptors.into_iter(),
+                });
+            }
+        }
     }
 
     (layout, pool, desc_sets)
@@ -232,16 +224,13 @@ pub fn render_pass<B: Backend>(
         layouts: Layout::Undefined..Layout::Present,
     };
 
-    let depth_attachment = depth_format.map(|surface_depth_format| {
-        Attachment {
-            format: Some(surface_depth_format),
-            samples: 1,
-            ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::DontCare),
-            stencil_ops: AttachmentOps::DONT_CARE,
-            layouts: Layout::Undefined..Layout::DepthStencilAttachmentOptimal,
-        }
+    let depth_attachment = depth_format.map(|surface_depth_format| Attachment {
+        format: Some(surface_depth_format),
+        samples: 1,
+        ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::DontCare),
+        stencil_ops: AttachmentOps::DONT_CARE,
+        layouts: Layout::Undefined..Layout::DepthStencilAttachmentOptimal,
     });
-
 
     let subpass = SubpassDesc {
         colors: &[(0, Layout::ColorAttachmentOptimal)],
@@ -257,7 +246,7 @@ pub fn render_pass<B: Backend>(
             None => vec![color_attachment],
         };
         device
-            .create_render_pass(&attachments, &[subpass], &[])
+            .create_render_pass(attachments.into_iter(), over([subpass]), over([]))
             .expect("out of memory")
     }
 }
@@ -274,15 +263,15 @@ pub fn pipeline<B: SupportedBackend>(
 ) -> (B::GraphicsPipeline, B::PipelineLayout) {
     use gfx_hal::pso::*;
 
-    let push = &[(
+    let push = vec![(
         ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
         0..push_constant_size,
     )];
-    let push: &[_] = if push_constant_size > 0 { push } else { &[] };
+    let push = if push_constant_size > 0 { push } else { vec![] };
 
     let pipeline_layout = unsafe {
         device
-            .create_pipeline_layout(desc_layout, push)
+            .create_pipeline_layout(desc_layout.into_iter(), push.into_iter())
             .expect("out of memory")
     };
 
@@ -319,7 +308,7 @@ pub fn pipeline<B: SupportedBackend>(
                     2 => Format::Rg32Sfloat,
                     3 => Format::Rgb32Sfloat,
                     4 => Format::Rgba32Sfloat,
-                    n => panic!("invalid attribute size {}", n)
+                    n => panic!("invalid attribute size {}", n),
                 },
                 offset,
             },
@@ -386,13 +375,15 @@ pub fn reconfigure_swapchain<B: Backend>(
     device: &B::Device,
     surface_color_format: Format,
     surface_extent: &mut gfx_hal::window::Extent2D,
-) {
+) -> FramebufferAttachment {
     use gfx_hal::window::SwapchainConfig;
 
     let caps = surface.capabilities(&adapter.physical_device);
 
     let mut swapchain_config =
         SwapchainConfig::from_caps(&caps, surface_color_format, *surface_extent);
+
+    let framebuffer_attachment = swapchain_config.framebuffer_attachment();
 
     // This seems to fix some fullscreen slowdown on macOS.
     if caps.image_count.contains(&3) {
@@ -406,6 +397,8 @@ pub fn reconfigure_swapchain<B: Backend>(
             .configure_swapchain(device, swapchain_config)
             .expect("failed to configure swapchain");
     };
+
+    framebuffer_attachment
 }
 
 pub fn acquire_framebuffer<B: Backend>(
@@ -413,7 +406,7 @@ pub fn acquire_framebuffer<B: Backend>(
     surface: &mut B::Surface,
     surface_extent: &gfx_hal::window::Extent2D,
     render_pass: &B::RenderPass,
-    depth_view: Option<&B::ImageView>,
+    framebuffer_attachment: gfx_hal::image::FramebufferAttachment,
 ) -> Result<
     (
         B::Framebuffer,
@@ -425,19 +418,12 @@ pub fn acquire_framebuffer<B: Backend>(
     let acquire_timeout_ns = 1_000_000_000;
     match unsafe { surface.acquire_image(acquire_timeout_ns) } {
         Ok((surface_image, _)) => unsafe {
-            use std::borrow::Borrow;
-
             use gfx_hal::image::Extent;
-
-            let mut attachments = vec![surface_image.borrow()];
-            if let Some(view) = depth_view {
-                attachments.push(view);
-            }
 
             let framebuffer = device
                 .create_framebuffer(
                     render_pass,
-                    attachments,
+                    over([framebuffer_attachment]),
                     Extent {
                         width: surface_extent.width,
                         height: surface_extent.height,
