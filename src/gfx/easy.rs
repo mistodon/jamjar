@@ -85,7 +85,7 @@ pub fn desc_sets<B: Backend>(
     ubos: usize,
     images: usize,
     samplers: usize,
-    values: Vec<(Vec<B::Buffer>, Vec<B::ImageView>, Vec<B::Sampler>)>,
+    values: Vec<(Vec<&B::Buffer>, Vec<&B::ImageView>, Vec<&B::Sampler>)>,
 ) -> (
     B::DescriptorSetLayout,
     B::DescriptorPool,
@@ -176,19 +176,16 @@ pub fn desc_sets<B: Backend>(
 
         let mut descriptors = Vec::with_capacity(ubos + images + samplers);
         for i in 0..ubos {
-            descriptors.push(Descriptor::Buffer(
-                &values[set_number].0[i],
-                SubRange::WHOLE,
-            ));
+            descriptors.push(Descriptor::Buffer(values[set_number].0[i], SubRange::WHOLE));
         }
         for i in 0..images {
             descriptors.push(Descriptor::Image(
-                &values[set_number].1[i],
+                values[set_number].1[i],
                 gfx_hal::image::Layout::Undefined,
             ));
         }
         for i in 0..samplers {
-            descriptors.push(Descriptor::Sampler(&values[set_number].2[i]));
+            descriptors.push(Descriptor::Sampler(values[set_number].2[i]));
         }
 
         unsafe {
@@ -328,7 +325,7 @@ pub fn pipeline<B: SupportedBackend>(
     let mut pipeline_desc = GraphicsPipelineDesc::new(
         primitive_assembler,
         Rasterizer {
-            cull_face: Face::NONE,
+            cull_face: Face::NONE, // TODO: Cull back
             ..Rasterizer::FILL
         },
         entries.next(),
@@ -341,7 +338,7 @@ pub fn pipeline<B: SupportedBackend>(
 
     pipeline_desc.blender.targets.push(ColorBlendDesc {
         mask: ColorMask::ALL,
-        blend: Some(BlendState::REPLACE),
+        blend: Some(BlendState::ALPHA),
     });
 
     if depth_format.is_some() {
@@ -433,7 +430,7 @@ pub fn acquire_framebuffer<B: Backend>(
                 .unwrap();
 
             let viewport = {
-                use gfx_hal::pso::{Rect, Viewport};
+                use gfx_hal::pso::Rect;
 
                 Viewport {
                     rect: Rect {

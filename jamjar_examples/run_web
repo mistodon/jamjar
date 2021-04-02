@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+set -eu
+set -o pipefail
+
+readonly bin=$1
+shift 1
+
+profile=${2:-}
+if [ "$profile" == "debug" ] || [ "$profile" == "release" ]; then
+    shift 1
+else
+    profile="release"
+fi
+
+rm -r web
+mkdir web
+
+cargo build --bin $bin --target wasm32-unknown-unknown --$profile --no-default-features --features opengl $@
+
+wasm-bindgen ./target/wasm32-unknown-unknown/$profile/$bin.wasm --out-dir web --web
+
+readonly indexfile=$(sed "s/BINARYNAME/$bin/g" << EOF
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    <style>
+        html, body {
+            margin: 0px;
+            padding: 0px;
+        }
+    </style>
+  </head>
+  <body>
+    <script src="./spirv_cross_wrapper_glsl.js"></script>
+    <script type="module">
+      import init from './BINARYNAME.js';
+
+      window.addEventListener("load", () => {
+        const module = window.sc_internal_wrapper().then(module => {
+          window.sc_internal = module;
+          init('./BINARYNAME_bg.wasm');
+        });
+      });
+
+      // async function run() {
+      //   console.log("Loading WASM for game:");
+      //   await init('./BINARYNAME_bg.wasm');
+      // }
+      //
+      // run();
+    </script>
+  </body>
+</html>
+EOF
+)
+
+echo $indexfile > web/index.html
+cp ~/temp/spirv_cross_wrapper_glsl.wasm web
+cp ~/temp/spirv_cross_wrapper_glsl.js web
+
+(cd web && http)

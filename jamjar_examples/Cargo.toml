@@ -8,12 +8,13 @@ edition = "2018"
 default = ["metal"]
 opengl = ["jamjar/opengl"]
 metal = ["jamjar/metal"]
+glsl = ["jamjar/bypass_spirv_cross"]
 
 [dependencies]
 image = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
-jamjar = { path = "..", features = ["everything", "drawsloth"] }
+jamjar = { path = "..", features = ["everything", "drawsloth", "drawgroovy"] }
 
 [build-dependencies]
 jamjar = { path = "..", features = ["codegen"] }

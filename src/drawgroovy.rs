@@ -2,6 +2,8 @@
 
 use std::mem::ManuallyDrop;
 
+use image::RgbaImage;
+
 use crate::{
     gfx::{self, easy, prelude::*, SupportedBackend},
     utils::over,
@@ -16,20 +18,42 @@ compile_error!("Web builds (wasm32) require the `opengl` feature to be enabled."
 
 #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
-    include_bytes!("../assets/shaders/compiled/sloth.vert.spv"),
-    include_bytes!("../assets/shaders/compiled/sloth.frag.spv"),
+    include_bytes!("../assets/shaders/compiled/groovy.vert.spv"),
+    include_bytes!("../assets/shaders/compiled/groovy.frag.spv"),
 );
 
 #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
-    include_bytes!("../assets/shaders/compiled/sloth.es.vert"),
-    include_bytes!("../assets/shaders/compiled/sloth.es.frag"),
+    include_bytes!("../assets/shaders/compiled/groovy.es.vert"),
+    include_bytes!("../assets/shaders/compiled/groovy.es.frag"),
 );
+
+pub const MAX_SPRITES: usize = 10000;
+const VERTEX_BUFFER_LEN: usize = MAX_SPRITES * 6;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sprite {
+    pub pos: [f32; 2],
+    pub size: [f32; 2],
+    pub tint: [f32; 4],
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[repr(C)]
+struct Vertex {
+    pub tint: [f32; 4],
+    pub uv: [f32; 2],
+    pub offset: [f32; 3],
+}
 
 fn wiperr<T>(_: T) -> () {}
 
+fn is_srgb(surface_format: Format) -> bool {
+    surface_format.base_format().1 == hal::format::ChannelType::Srgb
+}
+
 fn texture_format(surface_format: Format) -> Format {
-    if surface_format.base_format().1 == hal::format::ChannelType::Srgb {
+    if is_srgb(surface_format) {
         Format::Rgba8Srgb
     } else {
         Format::Rgba8Unorm
@@ -40,7 +64,8 @@ struct Resources<B: SupportedBackend> {
     _instance: Option<B::Instance>,
     surface: B::Surface,
     command_pool: B::CommandPool,
-    canvas_image: (B::Memory, B::Image, B::ImageView),
+    vertex_buffer: (B::Memory, B::Buffer),
+    atlas_image: (B::Memory, B::Image, B::ImageView),
     sampler: B::Sampler,
     render_pass: B::RenderPass,
     desc_set_layout: B::DescriptorSetLayout,
@@ -59,73 +84,12 @@ pub struct Renderer<'a, B: SupportedBackend> {
         <B::Surface as PresentationSurface<B>>::SwapchainImage,
         Viewport,
     )>,
+    sprites: Vec<Sprite>,
 }
 
 impl<'a, B: SupportedBackend> Renderer<'a, B> {
-    pub fn blit(self, image: &image::RgbaImage) {
-        let Resources {
-            command_pool,
-            canvas_image,
-            sampler,
-            ..
-        } = &mut *self.context.resources;
-
-        let dims = image.dimensions();
-        if dims != self.context.canvas_image_size {
-            let replacement_image = unsafe {
-                use hal::format::Aspects;
-                use hal::image::Usage;
-
-                gfx::make_image::<B>(
-                    &self.context.device,
-                    &self.context.adapter.physical_device,
-                    dims,
-                    texture_format(self.context.surface_color_format),
-                    Usage::SAMPLED | Usage::TRANSFER_DST,
-                    Aspects::COLOR,
-                )
-            };
-
-            let old = std::mem::replace(canvas_image, replacement_image);
-            unsafe {
-                let (mem, img, view) = old;
-                self.context.device.destroy_image_view(view);
-                self.context.device.destroy_image(img);
-                self.context.device.free_memory(mem);
-            }
-
-            unsafe {
-                use hal::buffer::SubRange;
-                use hal::pso::{Descriptor, DescriptorSetWrite};
-
-                let descriptors = over([
-                    Descriptor::Image(&canvas_image.2, hal::image::Layout::Undefined),
-                    Descriptor::Sampler(sampler),
-                ]);
-
-                self.context
-                    .device
-                    .write_descriptor_set(DescriptorSetWrite {
-                        set: &mut self.context.desc_set,
-                        binding: 0,
-                        array_offset: 0,
-                        descriptors,
-                    });
-            }
-        }
-
-        unsafe {
-            let extent = self.context.surface_extent;
-            gfx::upload_image::<B>(
-                &self.context.device,
-                &self.context.adapter.physical_device,
-                command_pool,
-                &mut self.context.queue_group.queues[0],
-                &canvas_image.1,
-                image.dimensions(),
-                image,
-            );
-        }
+    pub fn sprite(&mut self, sprite: Sprite) {
+        self.sprites.push(sprite);
     }
 }
 
@@ -133,6 +97,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
     fn drop(&mut self) {
         let Resources {
             command_pool,
+            vertex_buffer,
             surface,
             submission_complete_fence,
             rendering_complete_semaphore,
@@ -141,6 +106,89 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             render_pass,
             ..
         } = &mut *self.context.resources;
+
+        // Fill vertex cache
+        assert!(self.sprites.len() <= MAX_SPRITES);
+
+        let verts = &mut self.context.vertex_cache;
+        verts.clear(); // TODO: Maybe actually cache?
+
+        let scale_x =
+            (self.context.scale_factor * 2.0 / self.context.surface_extent.width as f64) as f32;
+        let scale_y =
+            (self.context.scale_factor * 2.0 / self.context.surface_extent.height as f64) as f32;
+        let project = |x, y| {
+            #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
+            {
+                [(x * scale_x) - 1., -1. * ((y * scale_y) - 1.), 0.]
+            }
+            #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
+            {
+                [(x * scale_x) - 1., (y * scale_y) - 1., 0.]
+            }
+        };
+
+        for sprite in &self.sprites {
+            let tint = if is_srgb(self.context.surface_color_format) {
+                gfx::srgb_to_linear(sprite.tint)
+            } else {
+                sprite.tint
+            };
+            let [x, y] = sprite.pos;
+            let [w, h] = sprite.size;
+            let p0 = Vertex {
+                offset: project(x, y),
+                tint: tint,
+                uv: [0., 0.],
+            };
+            let p1 = Vertex {
+                offset: project(x, y + h),
+                tint: tint,
+                uv: [0., 1.],
+            };
+            let p2 = Vertex {
+                offset: project(x + w, y + h),
+                tint: tint,
+                uv: [1., 1.],
+            };
+            let p3 = Vertex {
+                offset: project(x + w, y),
+                tint: tint,
+                uv: [1., 0.],
+            };
+            verts.push(p0);
+            verts.push(p1);
+            verts.push(p2);
+            verts.push(p0);
+            verts.push(p2);
+            verts.push(p3);
+        }
+
+        // Upload to vertex buffer
+        let vertex_bytes = verts.len() * std::mem::size_of::<Vertex>();
+        unsafe {
+            use gfx_hal::memory::Segment;
+
+            let (memory, buffer) = vertex_buffer;
+            let segment = Segment {
+                offset: 0,
+                size: Some(vertex_bytes as u64),
+            };
+            let mapped_memory = self
+                .context
+                .device
+                .map_memory(memory, segment.clone())
+                .expect("Failed to map memory");
+
+            std::ptr::copy_nonoverlapping(verts.as_ptr() as *const u8, mapped_memory, vertex_bytes);
+
+            self.context
+                .device
+                .flush_mapped_memory_ranges(over([(&*memory, segment)]))
+                .expect("Out of memory");
+
+            self.context.device.unmap_memory(memory);
+        }
 
         if let Some((framebuffer, surface_image, viewport)) = self.framebuffer.take() {
             use std::borrow::Borrow;
@@ -168,8 +216,17 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     over([]),
                 );
 
-                // TODO: Has to come before render pass for OpenGL, but after
-                // for Metal ...
+                self.context.command_buffer.bind_vertex_buffers(
+                    0,
+                    over([(
+                        &vertex_buffer.1,
+                        gfx_hal::buffer::SubRange {
+                            offset: 0,
+                            size: Some(vertex_bytes as u64),
+                        },
+                    )]),
+                );
+
                 self.context.command_buffer.bind_graphics_pipeline(pipeline);
 
                 self.context.command_buffer.begin_render_pass(
@@ -187,13 +244,8 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     SubpassContents::Inline,
                 );
 
-                #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
-                let vertex_range = 0..6;
-
-                #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
-                let vertex_range = 6..12;
-
-                self.context.command_buffer.draw(vertex_range, 0..1);
+                let num_verts = verts.len() as u32;
+                self.context.command_buffer.draw(0..num_verts, 0..1);
 
                 self.context.command_buffer.end_render_pass();
                 self.context.command_buffer.finish();
@@ -232,22 +284,24 @@ pub struct DrawContext<B: SupportedBackend> {
     surface_color_format: hal::format::Format,
     desc_set: B::DescriptorSet,
     surface_extent: hal::window::Extent2D,
+    scale_factor: f64,
     framebuffer_attachment: Option<FramebufferAttachment>,
     swapchain_invalidated: Option<()>,
-    canvas_image_size: (u32, u32),
+    texture_atlas: RgbaImage,
+    vertex_cache: Vec<Vertex>,
 }
 
 impl<B: SupportedBackend> DrawContext<B> {
-    pub fn new(window: &Window) -> Result<Self, ()> {
+    pub fn new(window: &Window, texture_atlas: RgbaImage) -> Result<Self, ()> {
         let (
             instance,
             surface,
             surface_color_format,
             adapter,
             device,
-            queue_group,
+            mut queue_group,
             mut command_pool,
-        ) = easy::init::<B>(window, "jamjar_drawsloth", 1)
+        ) = easy::init::<B>(window, "jamjar_drawgroovy", 1)
             .map_err(|msg| eprintln!("easy::init error: {}", msg))?;
 
         let mut command_buffer = unsafe { command_pool.allocate_one(hal::command::Level::Primary) };
@@ -260,15 +314,25 @@ impl<B: SupportedBackend> DrawContext<B> {
             height: physical_size.height,
         };
 
-        let canvas_image_size = logical_size.into();
-        let canvas_image = unsafe {
+        let vertex_buffer = unsafe {
+            gfx::make_buffer::<B>(
+                &device,
+                &adapter.physical_device,
+                VERTEX_BUFFER_LEN * std::mem::size_of::<Vertex>(),
+                hal::buffer::Usage::VERTEX,
+                hal::memory::Properties::CPU_VISIBLE,
+            )
+        };
+
+        let atlas_image_size = texture_atlas.dimensions();
+        let atlas_image = unsafe {
             use hal::format::{Aspects, Format};
             use hal::image::Usage;
 
             gfx::make_image::<B>(
                 &device,
                 &adapter.physical_device,
-                canvas_image_size,
+                atlas_image_size,
                 texture_format(surface_color_format),
                 Usage::SAMPLED | Usage::TRANSFER_DST,
                 Aspects::COLOR,
@@ -279,9 +343,21 @@ impl<B: SupportedBackend> DrawContext<B> {
             use hal::image::{Filter, SamplerDesc, Usage, WrapMode};
 
             device
-                .create_sampler(&SamplerDesc::new(Filter::Linear, WrapMode::Tile))
+                .create_sampler(&SamplerDesc::new(Filter::Nearest, WrapMode::Tile))
                 .expect("TODO")
         };
+
+        unsafe {
+            gfx::upload_image::<B>(
+                &device,
+                &adapter.physical_device,
+                &mut command_pool,
+                &mut queue_group.queues[0],
+                &atlas_image.1,
+                atlas_image_size,
+                &texture_atlas,
+            );
+        }
 
         let render_pass = easy::render_pass::<B>(&device, surface_color_format, None);
 
@@ -291,7 +367,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             0,
             1,
             1,
-            vec![(vec![], vec![&canvas_image.2], vec![&sampler])],
+            vec![(vec![], vec![&atlas_image.2], vec![&sampler])],
         );
         let mut desc_set = desc_sets.remove(0);
 
@@ -303,7 +379,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             SHADER_SOURCES.1,
             &render_pass,
             None,
-            &[],
+            &[4, 2, 3],
         );
 
         let submission_complete_fence = device.create_fence(true).expect("Out of memory");
@@ -314,7 +390,8 @@ impl<B: SupportedBackend> DrawContext<B> {
                 _instance: Some(instance),
                 surface,
                 command_pool,
-                canvas_image,
+                vertex_buffer,
+                atlas_image,
                 sampler,
                 render_pass,
                 desc_set_layout,
@@ -330,10 +407,12 @@ impl<B: SupportedBackend> DrawContext<B> {
             command_buffer,
             surface_color_format,
             surface_extent,
+            scale_factor: dpi,
             desc_set,
             framebuffer_attachment: None,
             swapchain_invalidated: Some(()),
-            canvas_image_size,
+            texture_atlas,
+            vertex_cache: Vec::with_capacity(VERTEX_BUFFER_LEN),
         })
     }
 
@@ -346,6 +425,7 @@ impl<B: SupportedBackend> DrawContext<B> {
     }
 
     pub fn scale_factor_changed(&mut self, scale_factor: f64, resolution: (u32, u32)) {
+        self.scale_factor = scale_factor;
         self.resolution_changed(resolution);
     }
 
@@ -406,6 +486,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             context: self,
             clear_color,
             framebuffer,
+            sprites: vec![],
         };
         renderer
     }
@@ -418,7 +499,8 @@ impl<B: SupportedBackend> Drop for DrawContext<B> {
                 _instance,
                 mut surface,
                 command_pool,
-                canvas_image,
+                vertex_buffer,
+                atlas_image,
                 sampler,
                 render_pass,
                 desc_set_layout,
@@ -438,12 +520,16 @@ impl<B: SupportedBackend> Drop for DrawContext<B> {
             self.device.destroy_render_pass(render_pass);
             self.device.destroy_sampler(sampler);
             {
-                let (mem, img, view) = canvas_image;
+                let (mem, img, view) = atlas_image;
                 self.device.destroy_image_view(view);
                 self.device.destroy_image(img);
                 self.device.free_memory(mem);
             }
-
+            {
+                let (mem, buf) = vertex_buffer;
+                self.device.destroy_buffer(buf);
+                self.device.free_memory(mem);
+            }
             self.device.destroy_command_pool(command_pool);
             surface.unconfigure_swapchain(&self.device);
             if let Some(instance) = _instance {

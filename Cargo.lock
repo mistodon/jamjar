@@ -284,6 +284,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "501a375961cef1a0d44767200e66e4a559283097e91d0730b1d75dfb2f8a1494"
+dependencies = [
+ "log",
+ "web-sys",
+]
+
+[[package]]
 name = "copyless"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -832,7 +842,7 @@ name = "jamjar"
 version = "0.2.0"
 dependencies = [
  "buttons",
- "cpal",
+ "console_log",
  "dirty_static",
  "dymod",
  "edres",
@@ -842,6 +852,7 @@ dependencies = [
  "gfx-hal",
  "image",
  "lazy_static",
+ "log",
  "okmath",
  "resource",
  "rodio",

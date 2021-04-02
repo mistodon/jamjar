@@ -852,7 +852,7 @@ name = "jamjar"
 version = "0.2.0"
 dependencies = [
  "buttons",
- "cpal",
+ "console_log",
  "dirty_static",
  "dymod",
  "edres",
@@ -862,6 +862,7 @@ dependencies = [
  "gfx-hal",
  "image",
  "lazy_static",
+ "log",
  "okmath",
  "resource",
  "rodio",

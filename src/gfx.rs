@@ -8,7 +8,7 @@ pub mod prelude {
         device::Device,
         format::Format,
         image::FramebufferAttachment,
-        pso::ShaderStageFlags,
+        pso::{ShaderStageFlags, Viewport},
         queue::QueueGroup,
         window::{PresentationSurface, Surface},
         Backend, Instance as _,
@@ -55,7 +55,7 @@ impl SupportedBackend for self::backend::Metal {}
 
 #[cfg(feature = "opengl")]
 impl SupportedBackend for self::backend::OpenGL {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
     unsafe fn make_shader_module(
         device: &<Self as Backend>::Device,
         source: &[u8],
@@ -326,4 +326,10 @@ pub unsafe fn push_constant_bytes<T>(push_constants: &T) -> &[u32] {
     let size_in_u32s = size_in_bytes / push_constant_size;
     let start_ptr = push_constants as *const T as *const u32;
     std::slice::from_raw_parts(start_ptr, size_in_u32s)
+}
+
+pub fn srgb_to_linear(color: [f32; 4]) -> [f32; 4] {
+    const FACTOR: f32 = 2.2;
+    let [r, g, b, a] = color;
+    [r.powf(FACTOR), g.powf(FACTOR), b.powf(FACTOR), a]
 }

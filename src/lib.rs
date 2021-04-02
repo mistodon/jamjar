@@ -4,6 +4,9 @@ pub mod codegen;
 #[cfg(feature = "audio")]
 pub mod audio;
 
+#[cfg(feature = "drawgroovy")]
+pub mod drawgroovy;
+
 #[cfg(feature = "drawsloth")]
 pub mod drawsloth;
 

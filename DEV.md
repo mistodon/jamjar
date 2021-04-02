@@ -1,7 +1,14 @@
 # Urgently
 - [x] Fix drawsloth
-- [ ] Check other features too
-- [ ] Does this work on web at all?
+- [x] Check other features too
+- [x] Does this work on web at all?
+- [x] Make all examples work on web
+- [x] drawgroovy
+    - [x] Sprites
+    - [ ] Render to texture example
+    - [ ] Render to texture on web
+- [ ] Un-suppress warnings, fix them, clippy, etc.
+- [ ] Proper CI
 
 # Development
 
