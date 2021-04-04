@@ -17,7 +17,7 @@ fn main() {
     let (window, event_loop) =
         jamjar::windowing::window_and_event_loop("Window Test", resolution).unwrap();
 
-    let src_image = image::load_from_memory(&jamjar::resource!("assets/images/bubble.png"))
+    let src_image = image::load_from_memory(&jamjar::resource!("assets/images/white.png"))
         .unwrap()
         .to_rgba8();
 

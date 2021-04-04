@@ -320,6 +320,8 @@ impl<B: SupportedBackend> DrawContext<B> {
             &render_pass,
             None,
             &[],
+            None,
+            None,
         );
 
         let submission_complete_fence = device.create_fence(true).expect("Out of memory");

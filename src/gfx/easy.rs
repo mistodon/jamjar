@@ -260,6 +260,8 @@ pub fn pipeline<B: SupportedBackend>(
     render_pass: &B::RenderPass,
     depth_format: Option<Format>,
     attribute_sizes: &[u32],
+    depth_test: Option<gfx_hal::pso::DepthTest>,
+    stencil_test: Option<gfx_hal::pso::StencilTest>,
 ) -> (B::GraphicsPipeline, B::PipelineLayout) {
     use gfx_hal::pso::*;
 
@@ -346,12 +348,9 @@ pub fn pipeline<B: SupportedBackend>(
 
     if depth_format.is_some() {
         pipeline_desc.depth_stencil = DepthStencilDesc {
-            depth: Some(DepthTest {
-                fun: Comparison::LessEqual,
-                write: true,
-            }),
+            depth: depth_test,
             depth_bounds: false,
-            stencil: None,
+            stencil: stencil_test,
         };
     }
 

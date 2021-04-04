@@ -75,11 +75,16 @@ struct Resources<B: SupportedBackend> {
     pipeline: B::GraphicsPipeline,
     submission_complete_fence: B::Fence,
     rendering_complete_semaphore: B::Semaphore,
+    intermediate_canvas: (B::Memory, B::Image, B::ImageView),
+    blit_render_pass: B::RenderPass,
+    blit_pipeline_layout: B::PipelineLayout,
+    blit_pipeline: B::GraphicsPipeline,
 }
 
 pub struct Renderer<'a, B: SupportedBackend> {
     context: &'a mut DrawContext<B>,
     clear_color: Color,
+    intermediate_framebuffer: B::Framebuffer,
     framebuffer: Option<(
         B::Framebuffer,
         <B::Surface as PresentationSurface<B>>::SwapchainImage,
@@ -105,6 +110,10 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             pipeline_layout,
             pipeline,
             render_pass,
+            intermediate_canvas,
+            blit_pipeline_layout,
+            blit_pipeline,
+            blit_render_pass,
             ..
         } = &mut *self.context.resources;
 
@@ -250,10 +259,10 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
 
                 self.context.command_buffer.begin_render_pass(
                     render_pass,
-                    &framebuffer,
+                    &self.intermediate_framebuffer,
                     rect,
                     over([RenderAttachmentInfo {
-                        image_view: surface_image.borrow(),
+                        image_view: &intermediate_canvas.2,
                         clear_value: ClearValue {
                             color: ClearColor {
                                 float32: self.clear_color,
@@ -264,9 +273,53 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                 );
 
                 let num_verts = verts.len() as u32;
-                self.context.command_buffer.draw(0..num_verts, 0..1);
+                let num_verts = 12;
+                self.context.command_buffer.draw(6..num_verts, 0..1);
 
                 self.context.command_buffer.end_render_pass();
+
+                {
+                    use gfx_hal::image::Access;
+                    use gfx_hal::memory::{Barrier, Dependencies};
+                    use gfx_hal::pso::PipelineStage;
+
+                    self.context.command_buffer.pipeline_barrier(
+                        PipelineStage::all()..PipelineStage::all(),
+                        Dependencies::empty(),
+                        over([Barrier::AllImages(
+                            Access::SHADER_READ..Access::SHADER_WRITE,
+                        )]),
+                    );
+                }
+
+                self.context.command_buffer.begin_render_pass(
+                    blit_render_pass,
+                    &framebuffer,
+                    viewport.rect,
+                    over([RenderAttachmentInfo {
+                        image_view: surface_image.borrow(),
+                        clear_value: ClearValue {
+                            color: ClearColor {
+                                float32: [0., 0., 0., 1.],
+                            },
+                        },
+                    }]),
+                    SubpassContents::Inline,
+                );
+
+                self.context.command_buffer.bind_graphics_pipeline(blit_pipeline);
+
+                self.context.command_buffer.bind_graphics_descriptor_sets(
+                    blit_pipeline_layout,
+                    0,
+                    over([&self.context.blit_desc_set]),
+                    over([]),
+                );
+
+                self.context.command_buffer.draw(0..6, 0..1);
+
+                self.context.command_buffer.end_render_pass();
+
                 self.context.command_buffer.finish();
 
                 use hal::queue::CommandQueue;
@@ -302,6 +355,7 @@ pub struct DrawContext<B: SupportedBackend> {
     command_buffer: B::CommandBuffer,
     surface_color_format: hal::format::Format,
     desc_set: B::DescriptorSet,
+    blit_desc_set: B::DescriptorSet,
     surface_extent: hal::window::Extent2D,
     scale_factor: f64,
     framebuffer_attachment: Option<FramebufferAttachment>,
@@ -359,6 +413,20 @@ impl<B: SupportedBackend> DrawContext<B> {
             )
         };
 
+        let intermediate_canvas = unsafe {
+            use gfx_hal::format::{Aspects, Format};
+            use gfx_hal::image::Usage;
+
+            gfx::make_image::<B>(
+                &device,
+                &adapter.physical_device,
+                (surface_extent.width, surface_extent.height),
+                Format::Rgba8Srgb,
+                Usage::COLOR_ATTACHMENT | Usage::SAMPLED,
+                Aspects::COLOR,
+            )
+        };
+
         let sampler = unsafe {
             use hal::image::{Filter, SamplerDesc, Usage, WrapMode};
 
@@ -379,17 +447,23 @@ impl<B: SupportedBackend> DrawContext<B> {
             );
         }
 
-        let render_pass = easy::render_pass::<B>(&device, surface_color_format, None, false);
+        let render_pass = easy::render_pass::<B>(&device, Format::Rgba8Srgb, None, true);
+        let blit_render_pass = easy::render_pass::<B>(&device, surface_color_format, None, false);
 
         let (desc_set_layout, mut desc_set_pool, mut desc_sets) = easy::desc_sets::<B>(
             &device,
-            1,
+            2,
             0,
             1,
             1,
-            vec![(vec![], vec![&atlas_image.2], vec![&sampler])],
+            vec![
+                (vec![], vec![&atlas_image.2], vec![&sampler]),
+                (vec![], vec![&intermediate_canvas.2], vec![&sampler]),
+            ],
         );
+
         let mut desc_set = desc_sets.remove(0);
+        let mut blit_desc_set = desc_sets.remove(0);
 
         let (pipeline, pipeline_layout) = easy::pipeline::<B>(
             &device,
@@ -400,6 +474,21 @@ impl<B: SupportedBackend> DrawContext<B> {
             &render_pass,
             None,
             &[4, 2, 3],
+            None,
+            None,
+        );
+
+        let (blit_pipeline, blit_pipeline_layout) = easy::pipeline::<B>(
+            &device,
+            Some(&desc_set_layout),
+            0,
+            SHADER_SOURCES.0,
+            SHADER_SOURCES.1,
+            &blit_render_pass,
+            None,
+            &[4, 2, 3],
+            None,
+            None,
         );
 
         let submission_complete_fence = device.create_fence(true).expect("Out of memory");
@@ -420,6 +509,10 @@ impl<B: SupportedBackend> DrawContext<B> {
                 pipeline,
                 submission_complete_fence,
                 rendering_complete_semaphore,
+                intermediate_canvas,
+                blit_render_pass,
+                blit_pipeline_layout,
+                blit_pipeline,
             }),
             adapter,
             device,
@@ -429,6 +522,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             surface_extent,
             scale_factor: dpi,
             desc_set,
+            blit_desc_set,
             framebuffer_attachment: None,
             swapchain_invalidated: Some(()),
             texture_atlas,
@@ -456,6 +550,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             submission_complete_fence,
             command_pool,
             render_pass,
+            blit_render_pass,
             ..
         } = &mut *self.resources;
 
@@ -478,19 +573,35 @@ impl<B: SupportedBackend> DrawContext<B> {
 
         if self.swapchain_invalidated.take().is_some() {
             self.framebuffer_attachment = Some(easy::reconfigure_swapchain::<B>(
-                surface,
-                &self.adapter,
-                &self.device,
-                self.surface_color_format,
-                &mut self.surface_extent,
+                    surface,
+                    &self.adapter,
+                    &self.device,
+                    self.surface_color_format,
+                    &mut self.surface_extent,
             ));
         }
+
+        let intermediate_framebuffer = unsafe {
+            use gfx_hal::image::Extent;
+
+            self.device
+                .create_framebuffer(
+                    render_pass,
+                    self.framebuffer_attachment.iter().cloned(),
+                    Extent {
+                        width: self.surface_extent.width,
+                        height: self.surface_extent.height,
+                        depth: 1,
+                    },
+                )
+                .unwrap()
+        };
 
         let framebuffer = easy::acquire_framebuffer::<B>(
             &self.device,
             surface,
             &self.surface_extent,
-            &render_pass,
+            &blit_render_pass,
             self.framebuffer_attachment.clone().unwrap(),
         );
 
@@ -506,8 +617,12 @@ impl<B: SupportedBackend> DrawContext<B> {
         let mut renderer = Renderer {
             context: self,
             clear_color,
+            intermediate_framebuffer,
             framebuffer,
-            sprites: vec![],
+            sprites: vec![
+                Sprite { pos: [128., 0.], size: [256., 256.], tint: [1., 1., 1., 1.]},
+                Sprite { pos: [0., 0.], size: [512., 256.], tint: [1., 0., 0., 1.]},
+            ],
         };
         renderer
     }
@@ -530,6 +645,10 @@ impl<B: SupportedBackend> Drop for DrawContext<B> {
                 pipeline,
                 submission_complete_fence,
                 rendering_complete_semaphore,
+                intermediate_canvas,
+                blit_render_pass,
+                blit_pipeline_layout,
+                blit_pipeline,
             } = ManuallyDrop::take(&mut self.resources);
 
             self.device.destroy_semaphore(rendering_complete_semaphore);
