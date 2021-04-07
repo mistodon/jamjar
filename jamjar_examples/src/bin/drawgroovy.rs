@@ -10,15 +10,21 @@ pub fn wasm_main() {
 }
 
 fn main() {
+    use jamjar::draw::{backend, CanvasConfig};
+
+    let resolution = [512, 256];
+
     let (window, event_loop) =
-        jamjar::windowing::window_and_event_loop("Window Test", [512, 256]).unwrap();
+        jamjar::windowing::window_and_event_loop("Window Test", resolution).unwrap();
 
     let src_image = image::load_from_memory(&jamjar::resource!("assets/images/bubble.png"))
         .unwrap()
         .to_rgba8();
 
     let mut context =
-        jamjar::drawgroovy::DrawContext::<jamjar::gfx::backend::Whatever>::new(&window, src_image)
+        jamjar::drawgroovy::DrawContext::<backend::Whatever>::new(&window,
+            CanvasConfig::pixel_scaled(resolution),
+            src_image)
             .unwrap();
 
     let mut clock = jamjar::timing::RealClock::new_now();
@@ -89,6 +95,12 @@ fn main() {
                         });
                     }
                 }
+
+                ren.sprite(jamjar::drawgroovy::Sprite {
+                    pos: [500., 128.],
+                    size: [50., 50.],
+                    tint: [0., 1., 0., 1.],
+                });
             }
             _ => (),
         }

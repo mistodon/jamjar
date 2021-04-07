@@ -401,6 +401,7 @@ pub fn reconfigure_swapchain<B: Backend>(
     framebuffer_attachment
 }
 
+// TODO: Remove viewport pls
 pub fn acquire_framebuffer<B: Backend>(
     device: &B::Device,
     surface: &mut B::Surface,

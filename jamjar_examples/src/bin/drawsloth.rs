@@ -10,11 +10,14 @@ pub fn wasm_main() {
 }
 
 fn main() {
+    use jamjar::draw::{backend, CanvasConfig};
+
+    let resolution = [512, 256];
     let (window, event_loop) =
-        jamjar::windowing::window_and_event_loop("Window Test", [512, 256]).unwrap();
+        jamjar::windowing::window_and_event_loop("Window Test", resolution).unwrap();
 
     let mut context =
-        jamjar::drawsloth::DrawContext::<jamjar::gfx::backend::Whatever>::new(&window).unwrap();
+        jamjar::drawsloth::DrawContext::<backend::Whatever>::new(&window, CanvasConfig::set_scaled(resolution)).unwrap();
 
     let src_image = image::load_from_memory(&jamjar::resource!("assets/images/blit.png"))
         .unwrap()

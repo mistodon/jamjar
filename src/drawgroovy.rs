@@ -5,6 +5,7 @@ use std::mem::ManuallyDrop;
 use image::RgbaImage;
 
 use crate::{
+    draw::CanvasConfig,
     gfx::{self, easy, prelude::*, SupportedBackend},
     utils::over,
     windowing::{
@@ -107,16 +108,28 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             ..
         } = &mut *self.context.resources;
 
+        let canvas_properties = self.context.canvas_config.canvas_properties(
+            [
+                self.context.surface_extent.width,
+                self.context.surface_extent.height,
+            ],
+            self.context.scale_factor,
+        );
+
+
         // Fill vertex cache
         assert!(self.sprites.len() <= MAX_SPRITES);
 
         let verts = &mut self.context.vertex_cache;
         verts.clear(); // TODO: Maybe actually cache?
 
+        let [canvas_width, canvas_height] = canvas_properties.physical_canvas_size;
+
         let scale_x =
-            (self.context.scale_factor * 2.0 / self.context.surface_extent.width as f64) as f32;
+            (2.0 / canvas_width as f64) as f32;
         let scale_y =
-            (self.context.scale_factor * 2.0 / self.context.surface_extent.height as f64) as f32;
+            (2.0 / canvas_height as f64) as f32;
+
         let project = |x, y| {
             #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
             {
@@ -190,7 +203,10 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             self.context.device.unmap_memory(memory);
         }
 
-        if let Some((framebuffer, surface_image, viewport)) = self.framebuffer.take() {
+        let ([x, y], [w, h]) = canvas_properties.viewport_scissor_rect;
+        let rect = hal::pso::Rect { x, y, w, h };
+
+        if let Some((framebuffer, surface_image, _viewport)) = self.framebuffer.take() {
             use std::borrow::Borrow;
 
             unsafe {
@@ -204,10 +220,13 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
 
                 self.context
                     .command_buffer
-                    .set_viewports(0, over([viewport.clone()]));
+                    .set_viewports(0, over([Viewport {
+                        rect,
+                        depth: 0.0..1.0,
+                    }]));
                 self.context
                     .command_buffer
-                    .set_scissors(0, over([viewport.rect]));
+                    .set_scissors(0, over([rect]));
 
                 self.context.command_buffer.bind_graphics_descriptor_sets(
                     pipeline_layout,
@@ -232,7 +251,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                 self.context.command_buffer.begin_render_pass(
                     render_pass,
                     &framebuffer,
-                    viewport.rect,
+                    rect,
                     over([RenderAttachmentInfo {
                         image_view: surface_image.borrow(),
                         clear_value: ClearValue {
@@ -289,10 +308,11 @@ pub struct DrawContext<B: SupportedBackend> {
     swapchain_invalidated: Option<()>,
     texture_atlas: RgbaImage,
     vertex_cache: Vec<Vertex>,
+    canvas_config: CanvasConfig,
 }
 
 impl<B: SupportedBackend> DrawContext<B> {
-    pub fn new(window: &Window, texture_atlas: RgbaImage) -> Result<Self, ()> {
+    pub fn new(window: &Window, canvas_config: CanvasConfig, texture_atlas: RgbaImage) -> Result<Self, ()> {
         let (
             instance,
             surface,
@@ -413,6 +433,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             swapchain_invalidated: Some(()),
             texture_atlas,
             vertex_cache: Vec::with_capacity(VERTEX_BUFFER_LEN),
+            canvas_config,
         })
     }
 

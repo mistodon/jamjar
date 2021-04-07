@@ -3,6 +3,7 @@
 use std::mem::ManuallyDrop;
 
 use crate::{
+    draw::CanvasConfig,
     gfx::{self, easy, prelude::*, SupportedBackend},
     utils::over,
     windowing::{
@@ -142,7 +143,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             ..
         } = &mut *self.context.resources;
 
-        if let Some((framebuffer, surface_image, viewport)) = self.framebuffer.take() {
+        if let Some((framebuffer, surface_image, _viewport)) = self.framebuffer.take() {
             use std::borrow::Borrow;
 
             unsafe {
@@ -150,16 +151,31 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
                 };
 
+                let canvas_properties = self.context.canvas_config.canvas_properties(
+                    [
+                        self.context.surface_extent.width,
+                        self.context.surface_extent.height,
+                    ],
+                    self.context.scale_factor,
+                );
+
                 self.context
                     .command_buffer
                     .begin_primary(CommandBufferFlags::ONE_TIME_SUBMIT);
 
+                let ([x, y], [w, h]) = canvas_properties.viewport_scissor_rect;
+                let rect = hal::pso::Rect { x, y, w, h };
+
+                self.context.command_buffer.set_viewports(
+                    0,
+                    over([Viewport {
+                        rect,
+                        depth: 0.0..1.0,
+                    }]),
+                );
                 self.context
                     .command_buffer
-                    .set_viewports(0, over([viewport.clone()]));
-                self.context
-                    .command_buffer
-                    .set_scissors(0, over([viewport.rect]));
+                    .set_scissors(0, over([rect]));
 
                 self.context.command_buffer.bind_graphics_descriptor_sets(
                     pipeline_layout,
@@ -168,14 +184,12 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     over([]),
                 );
 
-                // TODO: Has to come before render pass for OpenGL, but after
-                // for Metal ...
                 self.context.command_buffer.bind_graphics_pipeline(pipeline);
 
                 self.context.command_buffer.begin_render_pass(
                     render_pass,
                     &framebuffer,
-                    viewport.rect,
+                    rect,
                     over([RenderAttachmentInfo {
                         image_view: surface_image.borrow(),
                         clear_value: ClearValue {
@@ -232,13 +246,15 @@ pub struct DrawContext<B: SupportedBackend> {
     surface_color_format: hal::format::Format,
     desc_set: B::DescriptorSet,
     surface_extent: hal::window::Extent2D,
+    scale_factor: f64,
     framebuffer_attachment: Option<FramebufferAttachment>,
     swapchain_invalidated: Option<()>,
     canvas_image_size: (u32, u32),
+    canvas_config: CanvasConfig,
 }
 
 impl<B: SupportedBackend> DrawContext<B> {
-    pub fn new(window: &Window) -> Result<Self, ()> {
+    pub fn new(window: &Window, canvas_config: CanvasConfig) -> Result<Self, ()> {
         let (
             instance,
             surface,
@@ -252,9 +268,9 @@ impl<B: SupportedBackend> DrawContext<B> {
 
         let mut command_buffer = unsafe { command_pool.allocate_one(hal::command::Level::Primary) };
 
-        let dpi = window.scale_factor();
+        let scale_factor = window.scale_factor();
         let physical_size: PhysicalSize<u32> = window.inner_size();
-        let logical_size: LogicalSize<u32> = physical_size.to_logical(dpi);
+        let logical_size: LogicalSize<u32> = physical_size.to_logical(scale_factor);
         let mut surface_extent = hal::window::Extent2D {
             width: physical_size.width,
             height: physical_size.height,
@@ -330,10 +346,12 @@ impl<B: SupportedBackend> DrawContext<B> {
             command_buffer,
             surface_color_format,
             surface_extent,
+            scale_factor,
             desc_set,
             framebuffer_attachment: None,
             swapchain_invalidated: Some(()),
             canvas_image_size,
+            canvas_config,
         })
     }
 
@@ -346,6 +364,7 @@ impl<B: SupportedBackend> DrawContext<B> {
     }
 
     pub fn scale_factor_changed(&mut self, scale_factor: f64, resolution: (u32, u32)) {
+        self.scale_factor = scale_factor;
         self.resolution_changed(resolution);
     }
 

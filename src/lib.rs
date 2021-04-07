@@ -11,6 +11,9 @@ pub mod drawgroovy;
 pub mod drawsloth;
 
 #[cfg(feature = "gfx")]
+pub mod draw;
+
+#[cfg(feature = "gfx")]
 pub mod gfx;
 
 #[cfg(feature = "input")]

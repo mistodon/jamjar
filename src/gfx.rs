@@ -1,4 +1,7 @@
-use crate::utils::over;
+use crate::{
+    draw::backend,
+    utils::over,
+};
 
 pub mod prelude {
     pub use gfx_hal as hal;
@@ -22,19 +25,6 @@ pub mod easy;
 
 use prelude::*;
 
-pub mod backend {
-    #[cfg(feature = "opengl")]
-    pub type OpenGL = gfx_backend_gl::Backend;
-    #[cfg(feature = "metal")]
-    pub type Metal = gfx_backend_metal::Backend;
-
-    #[cfg(feature = "metal")]
-    pub type Whatever = Metal;
-
-    #[cfg(all(feature = "opengl", not(any(feature = "metal"))))]
-    pub type Whatever = OpenGL;
-}
-
 pub trait SupportedBackend: Backend {
     unsafe fn make_shader_module(
         device: &<Self as Backend>::Device,
@@ -51,10 +41,10 @@ pub trait SupportedBackend: Backend {
 }
 
 #[cfg(feature = "metal")]
-impl SupportedBackend for self::backend::Metal {}
+impl SupportedBackend for backend::Metal {}
 
 #[cfg(feature = "opengl")]
-impl SupportedBackend for self::backend::OpenGL {
+impl SupportedBackend for backend::OpenGL {
     #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
     unsafe fn make_shader_module(
         device: &<Self as Backend>::Device,
