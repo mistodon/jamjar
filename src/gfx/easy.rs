@@ -105,7 +105,7 @@ pub fn desc_sets<B: Backend>(
                     dynamic_offset: false,
                 },
             },
-            count: sets,
+            count: 1,
             stage_flags: ShaderStageFlags::FRAGMENT,
             immutable_samplers: false,
         });
@@ -128,7 +128,7 @@ pub fn desc_sets<B: Backend>(
                     with_sampler: false,
                 },
             },
-            count: sets,
+            count: 1,
             stage_flags: ShaderStageFlags::FRAGMENT,
             immutable_samplers: false,
         });
@@ -146,7 +146,7 @@ pub fn desc_sets<B: Backend>(
         bindings.push(DescriptorSetLayoutBinding {
             binding: binding_number,
             ty: DescriptorType::Sampler,
-            count: sets,
+            count: 1,
             stage_flags: ShaderStageFlags::FRAGMENT,
             immutable_samplers: false,
         });
@@ -207,25 +207,28 @@ pub fn render_pass<B: Backend>(
     device: &B::Device,
     surface_color_format: Format,
     depth_format: Option<Format>,
+    intermediate: bool,
 ) -> B::RenderPass {
     use gfx_hal::image::Layout;
     use gfx_hal::pass::{
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc,
     };
 
+    let end_layout = if intermediate { Layout::ShaderReadOnlyOptimal } else { Layout::Present };
+
     let color_attachment = Attachment {
         format: Some(surface_color_format),
         samples: 1,
         ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::Store),
         stencil_ops: AttachmentOps::DONT_CARE,
-        layouts: Layout::Undefined..Layout::Present,
+        layouts: Layout::Undefined..end_layout,
     };
 
     let depth_attachment = depth_format.map(|surface_depth_format| Attachment {
         format: Some(surface_depth_format),
         samples: 1,
         ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::DontCare),
-        stencil_ops: AttachmentOps::DONT_CARE,
+        stencil_ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::DontCare),
         layouts: Layout::Undefined..Layout::DepthStencilAttachmentOptimal,
     });
 
@@ -325,7 +328,7 @@ pub fn pipeline<B: SupportedBackend>(
     let mut pipeline_desc = GraphicsPipelineDesc::new(
         primitive_assembler,
         Rasterizer {
-            cull_face: Face::NONE, // TODO: Cull back
+            cull_face: Face::BACK,
             ..Rasterizer::FILL
         },
         entries.next(),

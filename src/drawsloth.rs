@@ -283,7 +283,7 @@ impl<B: SupportedBackend> DrawContext<B> {
                 .expect("TODO")
         };
 
-        let render_pass = easy::render_pass::<B>(&device, surface_color_format, None);
+        let render_pass = easy::render_pass::<B>(&device, surface_color_format, None, false);
 
         let (desc_set_layout, mut desc_set_pool, mut desc_sets) = easy::desc_sets::<B>(
             &device,
