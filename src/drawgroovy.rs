@@ -237,6 +237,21 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     .command_buffer
                     .set_scissors(0, over([rect]));
 
+                self.context.command_buffer.begin_render_pass(
+                    render_pass,
+                    &self.intermediate_framebuffer,
+                    viewport.rect,
+                    over([RenderAttachmentInfo {
+                        image_view: &intermediate_canvas.2,
+                        clear_value: ClearValue {
+                            color: ClearColor {
+                                float32: self.clear_color,
+                            },
+                        },
+                    }]),
+                    SubpassContents::Inline,
+                );
+
                 self.context.command_buffer.bind_graphics_descriptor_sets(
                     pipeline_layout,
                     0,
@@ -273,7 +288,6 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                 );
 
                 let num_verts = verts.len() as u32;
-                let num_verts = 12;
                 self.context.command_buffer.draw(6..num_verts, 0..1);
 
                 self.context.command_buffer.end_render_pass();
@@ -300,7 +314,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                         image_view: surface_image.borrow(),
                         clear_value: ClearValue {
                             color: ClearColor {
-                                float32: [0., 0., 0., 1.],
+                                float32: [1., 0., 1., 1.],
                             },
                         },
                     }]),
@@ -620,8 +634,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             intermediate_framebuffer,
             framebuffer,
             sprites: vec![
-                Sprite { pos: [128., 0.], size: [256., 256.], tint: [1., 1., 1., 1.]},
-                Sprite { pos: [0., 0.], size: [512., 256.], tint: [1., 0., 0., 1.]},
+                Sprite { pos: [0., 0.], size: [512., 256.], tint: [1., 1., 1., 1.]}, // Note: Dummy sprite for fullscreen quad
             ],
         };
         renderer
