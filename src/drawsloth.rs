@@ -143,7 +143,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             ..
         } = &mut *self.context.resources;
 
-        if let Some((framebuffer, surface_image, _viewport)) = self.framebuffer.take() {
+        if let Some((framebuffer, surface_image, _)) = self.framebuffer.take() {
             use std::borrow::Borrow;
 
             unsafe {
@@ -303,10 +303,6 @@ impl<B: SupportedBackend> DrawContext<B> {
 
         let (desc_set_layout, mut desc_set_pool, mut desc_sets) = easy::desc_sets::<B>(
             &device,
-            1,
-            0,
-            1,
-            1,
             vec![(vec![], vec![&canvas_image.2], vec![&sampler])],
         );
         let mut desc_set = desc_sets.remove(0);
@@ -320,8 +316,6 @@ impl<B: SupportedBackend> DrawContext<B> {
             &render_pass,
             None,
             &[],
-            None,
-            None,
         );
 
         let submission_complete_fence = device.create_fence(true).expect("Out of memory");

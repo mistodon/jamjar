@@ -123,7 +123,10 @@ impl CanvasConfig {
             }
         };
 
-        let viewport_inset = [(pw.saturating_sub(vw)) as i16 / 2, (ph.saturating_sub(vh)) as i16 / 2];
+        let viewport_inset = [
+            (pw.saturating_sub(vw)) as i16 / 2,
+            (ph.saturating_sub(vh)) as i16 / 2,
+        ];
 
         CanvasProperties {
             physical_canvas_size: [cw, ch],

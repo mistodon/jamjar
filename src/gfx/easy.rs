@@ -81,10 +81,6 @@ pub fn init<B: Backend>(
 
 pub fn desc_sets<B: Backend>(
     device: &B::Device,
-    sets: usize,
-    ubos: usize,
-    images: usize,
-    samplers: usize,
     values: Vec<(Vec<&B::Buffer>, Vec<&B::ImageView>, Vec<&B::Sampler>)>,
 ) -> (
     B::DescriptorSetLayout,
@@ -92,6 +88,13 @@ pub fn desc_sets<B: Backend>(
     Vec<B::DescriptorSet>,
 ) {
     use gfx_hal::pso::*;
+
+    let sets = values.len();
+    let ubos = values.get(0).map(|set| set.0.len()).unwrap_or(0);
+    let images = values.get(0).map(|set| set.1.len()).unwrap_or(0);
+    let samplers = values.get(0).map(|set| set.2.len()).unwrap_or(0);
+
+    assert!(values.iter().all(|set| set.0.len() == ubos && set.1.len() == images && set.2.len() == samplers), "All desc_sets must have the same layout of values");
 
     let mut binding_number = 0;
     let mut bindings = vec![];
@@ -171,21 +174,42 @@ pub fn desc_sets<B: Backend>(
         (layout, pool, desc_sets)
     };
 
-    for (set_number, desc_set) in desc_sets.iter_mut().enumerate() {
+    write_desc_sets::<B>(device, desc_sets.iter_mut().collect(), values);
+
+    (layout, pool, desc_sets)
+}
+
+pub fn write_desc_sets<B: Backend>(
+    device: &B::Device,
+    desc_sets: Vec<&mut B::DescriptorSet>,
+    values: Vec<(Vec<&B::Buffer>, Vec<&B::ImageView>, Vec<&B::Sampler>)>,
+) {
+    use gfx_hal::pso::*;
+
+    assert!(desc_sets.len() == values.len() && !values.is_empty(), "Must supply a matching, non-zero number of desc_sets and values");
+
+    let ubos = values.get(0).map(|set| set.0.len()).unwrap_or(0);
+    let images = values.get(0).map(|set| set.1.len()).unwrap_or(0);
+    let samplers = values.get(0).map(|set| set.2.len()).unwrap_or(0);
+
+    assert!(values.iter().all(|set| set.0.len() == ubos && set.1.len() == images && set.2.len() == samplers), "All desc_sets must have the same layout of values");
+
+    for (set_values, desc_set) in values.into_iter().zip(desc_sets.into_iter()) {
         use gfx_hal::buffer::SubRange;
 
         let mut descriptors = Vec::with_capacity(ubos + images + samplers);
-        for i in 0..ubos {
-            descriptors.push(Descriptor::Buffer(values[set_number].0[i], SubRange::WHOLE));
+
+        for buffer in set_values.0 {
+            descriptors.push(Descriptor::Buffer(buffer, SubRange::WHOLE));
         }
-        for i in 0..images {
+        for image in set_values.1 {
             descriptors.push(Descriptor::Image(
-                values[set_number].1[i],
+                image,
                 gfx_hal::image::Layout::Undefined,
             ));
         }
-        for i in 0..samplers {
-            descriptors.push(Descriptor::Sampler(values[set_number].2[i]));
+        for sampler in set_values.2 {
+            descriptors.push(Descriptor::Sampler(sampler));
         }
 
         unsafe {
@@ -200,7 +224,6 @@ pub fn desc_sets<B: Backend>(
         }
     }
 
-    (layout, pool, desc_sets)
 }
 
 pub fn render_pass<B: Backend>(

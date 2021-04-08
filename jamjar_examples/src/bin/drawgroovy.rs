@@ -21,11 +21,12 @@ fn main() {
         .unwrap()
         .to_rgba8();
 
-    let mut context =
-        jamjar::drawgroovy::DrawContext::<backend::Whatever>::new(&window,
-            CanvasConfig::pixel_scaled(resolution),
-            src_image)
-            .unwrap();
+    let mut context = jamjar::drawgroovy::DrawContext::<backend::Whatever>::new(
+        &window,
+        CanvasConfig::pixel_scaled(resolution),
+        src_image,
+    )
+    .unwrap();
 
     let mut clock = jamjar::timing::RealClock::new_now();
 
