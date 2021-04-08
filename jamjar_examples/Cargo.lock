@@ -852,6 +852,7 @@ name = "jamjar"
 version = "0.2.0"
 dependencies = [
  "buttons",
+ "console_error_panic_hook",
  "console_log",
  "dirty_static",
  "dymod",
@@ -878,11 +879,8 @@ dependencies = [
 name = "jamjar-examples"
 version = "0.1.0"
 dependencies = [
- "console_error_panic_hook",
- "console_log",
  "image",
  "jamjar",
- "log",
  "serde",
  "toml 0.5.8",
  "wasm-bindgen",

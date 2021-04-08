@@ -1,16 +1,13 @@
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(start)]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn wasm_main() {
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(log::Level::Debug).unwrap();
     main();
 }
 
 fn main() {
-    use jamjar::draw::{backend, CanvasConfig};
+    use jamjar::draw::{backend, CanvasConfig, CanvasMode};
+
+    jamjar::logging::init_logging();
 
     let resolution = [512, 256];
 
@@ -21,17 +18,28 @@ fn main() {
         .unwrap()
         .to_rgba8();
 
+    let mut canvas_config = CanvasConfig::pixel_scaled(resolution);
     let mut context = jamjar::drawgroovy::DrawContext::<backend::Whatever>::new(
         &window,
-        CanvasConfig::pixel_scaled(resolution),
+        canvas_config,
         src_image,
     )
     .unwrap();
 
     let mut clock = jamjar::timing::RealClock::new_now();
 
+    jamjar::jprintln!(
+        r#"Press:
+1. For fixed scaling
+2. For set scaling
+3. For pixel scaling
+4. For free scaling
+
+0. To toggle between Direct and Intermediate modes"#
+    );
+
     event_loop.run(move |event, _, control_flow| {
-        use jamjar::windowing::event::{Event, WindowEvent};
+        use jamjar::windowing::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
 
         match event {
             Event::WindowEvent { event, .. } => match event {
@@ -46,6 +54,37 @@ fn main() {
                     new_inner_size,
                 } => {
                     context.scale_factor_changed(scale_factor, (*new_inner_size).into());
+                }
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if let ElementState::Pressed = input.state {
+                        let mut mode = canvas_config.canvas_mode;
+
+                        match input.virtual_keycode {
+                            Some(VirtualKeyCode::Key0) => {
+                                mode = match mode {
+                                    CanvasMode::Direct => CanvasMode::Intermediate,
+                                    CanvasMode::Intermediate => CanvasMode::Direct,
+                                }
+                            }
+                            Some(VirtualKeyCode::Key1) => {
+                                canvas_config = CanvasConfig::fixed(resolution);
+                            }
+                            Some(VirtualKeyCode::Key2) => {
+                                canvas_config = CanvasConfig::set_scaled(resolution);
+                            }
+                            Some(VirtualKeyCode::Key3) => {
+                                canvas_config = CanvasConfig::pixel_scaled(resolution);
+                            }
+                            Some(VirtualKeyCode::Key4) => {
+                                canvas_config = CanvasConfig::default();
+                            }
+                            _ => (),
+                        }
+
+                        canvas_config.canvas_mode = mode;
+                        context.set_canvas_config(canvas_config);
+                        jamjar::jprintln!("Canvas config changed: {:?}", canvas_config);
+                    }
                 }
                 _ => (),
             },

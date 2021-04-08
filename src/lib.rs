@@ -19,6 +19,9 @@ pub mod gfx;
 #[cfg(feature = "input")]
 pub mod input;
 
+#[cfg(feature = "logging")]
+pub mod logging;
+
 #[cfg(feature = "math")]
 pub mod math;
 

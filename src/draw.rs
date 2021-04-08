@@ -53,6 +53,7 @@ impl Default for ScaleMode {
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct CanvasProperties {
     pub physical_canvas_size: [u32; 2],
+    pub logical_canvas_size: [u32; 2],
     pub viewport_scissor_rect: ([i16; 2], [i16; 2]),
 }
 
@@ -95,6 +96,10 @@ impl CanvasConfig {
     ) -> CanvasProperties {
         let s = scale_factor;
         let [pw, ph] = physical_window_size;
+        let logical_window_size = [
+            (pw as f64 / scale_factor) as u32,
+            (ph as f64 / scale_factor) as u32,
+        ];
 
         fn fit_in(inner_size: [u32; 2], outer_size: [u32; 2]) -> [u32; 2] {
             let [ow, oh] = outer_size;
@@ -109,6 +114,13 @@ impl CanvasConfig {
             ResizeMode::SetLogical([w, h]) => [(w as f64 * s) as u32, (h as f64 * s) as u32],
             ResizeMode::SetPhysical(res) => res,
             ResizeMode::Aspect(aspect_ratio) => fit_in(aspect_ratio, physical_window_size),
+        };
+
+        let logical_canvas_size = match self.resize_mode {
+            ResizeMode::Free => logical_window_size,
+            ResizeMode::SetLogical(res) => res,
+            ResizeMode::SetPhysical(res) => res,
+            ResizeMode::Aspect(aspect_ratio) => fit_in(aspect_ratio, logical_window_size),
         };
 
         let [vw, vh] = match self.scale_mode {
@@ -130,6 +142,7 @@ impl CanvasConfig {
 
         CanvasProperties {
             physical_canvas_size: [cw, ch],
+            logical_canvas_size,
             viewport_scissor_rect: (viewport_inset, [vw as i16, vh as i16]),
         }
     }

@@ -94,7 +94,12 @@ pub fn desc_sets<B: Backend>(
     let images = values.get(0).map(|set| set.1.len()).unwrap_or(0);
     let samplers = values.get(0).map(|set| set.2.len()).unwrap_or(0);
 
-    assert!(values.iter().all(|set| set.0.len() == ubos && set.1.len() == images && set.2.len() == samplers), "All desc_sets must have the same layout of values");
+    assert!(
+        values
+            .iter()
+            .all(|set| set.0.len() == ubos && set.1.len() == images && set.2.len() == samplers),
+        "All desc_sets must have the same layout of values"
+    );
 
     let mut binding_number = 0;
     let mut bindings = vec![];
@@ -186,13 +191,21 @@ pub fn write_desc_sets<B: Backend>(
 ) {
     use gfx_hal::pso::*;
 
-    assert!(desc_sets.len() == values.len() && !values.is_empty(), "Must supply a matching, non-zero number of desc_sets and values");
+    assert!(
+        desc_sets.len() == values.len() && !values.is_empty(),
+        "Must supply a matching, non-zero number of desc_sets and values"
+    );
 
     let ubos = values.get(0).map(|set| set.0.len()).unwrap_or(0);
     let images = values.get(0).map(|set| set.1.len()).unwrap_or(0);
     let samplers = values.get(0).map(|set| set.2.len()).unwrap_or(0);
 
-    assert!(values.iter().all(|set| set.0.len() == ubos && set.1.len() == images && set.2.len() == samplers), "All desc_sets must have the same layout of values");
+    assert!(
+        values
+            .iter()
+            .all(|set| set.0.len() == ubos && set.1.len() == images && set.2.len() == samplers),
+        "All desc_sets must have the same layout of values"
+    );
 
     for (set_values, desc_set) in values.into_iter().zip(desc_sets.into_iter()) {
         use gfx_hal::buffer::SubRange;
@@ -203,10 +216,7 @@ pub fn write_desc_sets<B: Backend>(
             descriptors.push(Descriptor::Buffer(buffer, SubRange::WHOLE));
         }
         for image in set_values.1 {
-            descriptors.push(Descriptor::Image(
-                image,
-                gfx_hal::image::Layout::Undefined,
-            ));
+            descriptors.push(Descriptor::Image(image, gfx_hal::image::Layout::Undefined));
         }
         for sampler in set_values.2 {
             descriptors.push(Descriptor::Sampler(sampler));
@@ -223,7 +233,6 @@ pub fn write_desc_sets<B: Backend>(
             }
         }
     }
-
 }
 
 pub fn render_pass<B: Backend>(
@@ -237,7 +246,11 @@ pub fn render_pass<B: Backend>(
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc,
     };
 
-    let end_layout = if intermediate { Layout::ShaderReadOnlyOptimal } else { Layout::Present };
+    let end_layout = if intermediate {
+        Layout::ShaderReadOnlyOptimal
+    } else {
+        Layout::Present
+    };
 
     let color_attachment = Attachment {
         format: Some(surface_color_format),

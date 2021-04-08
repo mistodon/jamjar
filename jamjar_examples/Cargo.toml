@@ -16,11 +16,8 @@ toml = "*"
 serde = { version = "*", features = ["derive"] }
 jamjar = { path = "..", features = ["everything", "drawsloth", "drawgroovy"] }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "*" }
+
 [build-dependencies]
 jamjar = { path = "..", features = ["codegen"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "*"
-console_log = "*"
-log = "*"
-wasm-bindgen = "*"

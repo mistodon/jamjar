@@ -13,12 +13,13 @@ drawsloth = ["gfx", "windowing"]
 drawgroovy = ["gfx", "windowing"]
 gfx = ["gfx-hal", "gfx-auxil", "image"]
 input = ["buttons", "windowing"]
+logging = ["console_log", "console_error_panic_hook", "log"]
 math = ["okmath"]
 reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "toml"]
 resources = ["resource"]
 timing = ["wasm-bindgen"]
 windowing = ["winit"]
-everything = ["audio", "input", "math", "reloading", "resources", "timing", "windowing"]
+everything = ["audio", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
 
 opengl = ["gfx-backend-gl"]
 metal = ["gfx-backend-metal"]
@@ -32,14 +33,15 @@ gfx-backend-gl = { path = "../../forks/gfx/src/backend/gl", branch = "mistodon",
 gfx-backend-metal = { path = "../../forks/gfx/src/backend/metal", branch = "mistodon", optional = true }
 image = { version = "~0.23.14", optional = true }
 lazy_static = { version = "~1.4.0", optional = true }
-log = "~0.4.14"
+log = { version = "~0.4.14", optional = true }
 okmath = { path = "../okmath", optional = true }
 serde = { version = "~1.0.125", features = ["derive"] }
 serde_yaml = { version = "~0.8.17", optional = true }
 toml = { version = "~0.5.7", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_log = "~0.2.0"
+console_log = { version = "~0.2.0", optional = true }
+console_error_panic_hook = { version = "~0.1.6", optional = true }
 dirty_static = { version = "~0.1.1", features = ["force-static"], optional = true }
 dymod = { version = "~0.3", optional = true, default-features = false, features = ["force-static"] }
 gfx-auxil = { path = "../../forks/gfx/src/auxil/auxil", branch = "mistodon", optional = true }

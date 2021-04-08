@@ -285,6 +285,10 @@ impl<B: SupportedBackend> DrawContext<B> {
         self.resolution_changed(resolution);
     }
 
+    pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
+        self.canvas_config = canvas_config;
+    }
+
     pub fn start_rendering(&mut self, clear_color: Color) -> Renderer<B> {
         let Resources {
             surface,
@@ -520,7 +524,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
         let verts = &mut self.context.vertex_cache;
         verts.clear(); // TODO: Maybe actually cache?
 
-        let [canvas_width, canvas_height] = canvas_properties.physical_canvas_size;
+        let [canvas_width, canvas_height] = canvas_properties.logical_canvas_size;
 
         let scale_x = (2.0 / canvas_width as f64) as f32;
         let scale_y = (2.0 / canvas_height as f64) as f32;

@@ -1,14 +1,7 @@
 ## Now:
-- [/] Resize/scaling modes (for drawsloth and groovy)
-    - [/] Drawsloth examples for fixed, set_scaled, and pixel_scaled CanvasConfigs
-    - [/] Drawgroovy examples for fixed, set_scaled, and pixel_scaled CanvasConfigs
-    - [ ] All of the above working on web
-- [ ] In groovy_rtt branch, make the Intermediate mode actually work and merge
 - [ ] General-purpose texture atlas API
-
-## Soon:
 - [ ] Add audio capabilities needed by groove_arc
-- Port groove_arc to jamjar, using drawgroovy
+- [ ] Port groove_arc to jamjar, using drawgroovy
 
 ## Later:
 Libs:

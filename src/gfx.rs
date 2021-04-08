@@ -1,7 +1,4 @@
-use crate::{
-    draw::backend,
-    utils::over,
-};
+use crate::{draw::backend, utils::over};
 
 pub mod prelude {
     pub use gfx_hal as hal;
