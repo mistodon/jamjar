@@ -5,7 +5,7 @@ use std::mem::ManuallyDrop;
 use image::RgbaImage;
 
 use crate::{
-    draw::{CanvasConfig, CanvasMode},
+    draw::{CanvasConfig, CanvasMode, Region},
     gfx::{self, easy, prelude::*, SupportedBackend},
     utils::over,
     windowing::{
@@ -37,6 +37,48 @@ pub struct Sprite {
     pub pos: [f32; 2],
     pub size: [f32; 2],
     pub tint: [f32; 4],
+    pub atlas_uv: ([f32; 2], [f32; 2]),
+}
+
+impl Sprite {
+    pub fn new(region: Region, pos: [f32; 2]) -> Self {
+        Self::tinted(region, pos, [1., 1., 1., 1.])
+    }
+
+    pub fn tinted(region: Region, pos: [f32; 2], tint: [f32; 4]) -> Self {
+        Self::scaled(region, pos, tint, [1., 1.])
+    }
+
+    pub fn scaled(region: Region, pos: [f32; 2], tint: [f32; 4], scale: [f32; 2]) -> Self {
+        let [x, y] = pos;
+        let (_, [w, h]) = region.pixels;
+        let [sx, sy] = scale;
+
+        Sprite {
+            pos: [x as f32, y as f32],
+            size: [w as f32 * sx, h as f32 * sy],
+            tint,
+            atlas_uv: region.uv,
+        }
+    }
+
+    pub fn gauge(region: Region, pos: [f32; 2], proportion: f32, brightness: f32) -> Self {
+        let [x, y] = pos;
+        let (_, [w, h]) = region.pixels;
+        let (x, y, w, h) = (x as f32, y as f32, w as f32, h as f32);
+
+        let mut uv = region.uv;
+        uv.1[0] *= proportion;
+
+        let scaled_w = w * proportion;
+        let b = brightness;
+        Sprite {
+            pos: [x - w / 2. + scaled_w / 2., y],
+            size: [scaled_w, h],
+            tint: [b, b, b, 1.],
+            atlas_uv: uv,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -410,6 +452,7 @@ impl<B: SupportedBackend> DrawContext<B> {
                     pos: [0., 0.],
                     size: [0., 0.],
                     tint: [0., 0., 0., 0.],
+                    atlas_uv: ([0., 0.], [0., 0.]),
                 }, // Note: Dummy sprite for fullscreen quad
             ],
         };
@@ -548,25 +591,26 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             };
             let [x, y] = sprite.pos;
             let [w, h] = sprite.size;
+            let ([u0, v0], [uw, vh]) = sprite.atlas_uv;
             let p0 = Vertex {
                 offset: project(x, y),
                 tint: tint,
-                uv: [0., 0.],
+                uv: [u0, v0],
             };
             let p1 = Vertex {
                 offset: project(x, y + h),
                 tint: tint,
-                uv: [0., 1.],
+                uv: [u0, v0 + vh],
             };
             let p2 = Vertex {
                 offset: project(x + w, y + h),
                 tint: tint,
-                uv: [1., 1.],
+                uv: [u0 + uw, v0 + vh],
             };
             let p3 = Vertex {
                 offset: project(x + w, y),
                 tint: tint,
-                uv: [1., 0.],
+                uv: [u0 + uw, v0],
             };
             verts.push(p0);
             verts.push(p1);

@@ -5,24 +5,36 @@ pub fn wasm_main() {
 }
 
 fn main() {
-    use jamjar::draw::{backend, CanvasConfig, CanvasMode};
+    use jamjar::{
+        atlas::{ImageAtlas},
+        draw::{backend, CanvasConfig, CanvasMode},
+        drawgroovy::{DrawContext, Sprite},
+        windowing,
+    };
 
     jamjar::logging::init_logging();
 
     let resolution = [512, 256];
 
     let (window, event_loop) =
-        jamjar::windowing::window_and_event_loop("Window Test", resolution).unwrap();
+        windowing::window_and_event_loop("Window Test", resolution).unwrap();
 
-    let src_image = image::load_from_memory(&jamjar::resource!("assets/images/bubble.png"))
+    let white_img = image::load_from_memory(&jamjar::resource!("assets/images/white.png"))
+        .unwrap()
+        .to_rgba8();
+    let bubble_img = image::load_from_memory(&jamjar::resource!("assets/images/bubble.png"))
         .unwrap()
         .to_rgba8();
 
+    let mut atlas = ImageAtlas::new();
+    atlas.insert("white".to_owned(), white_img);
+    atlas.insert("bubble".to_owned(), bubble_img);
+
     let mut canvas_config = CanvasConfig::pixel_scaled(resolution);
-    let mut context = jamjar::drawgroovy::DrawContext::<backend::Whatever>::new(
+    let mut context = DrawContext::<backend::Whatever>::new(
         &window,
         canvas_config,
-        src_image,
+        atlas.compile(),
     )
     .unwrap();
 
@@ -39,12 +51,12 @@ fn main() {
     );
 
     event_loop.run(move |event, _, control_flow| {
-        use jamjar::windowing::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
+        use windowing::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
 
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
-                    *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit
+                    *control_flow = windowing::event_loop::ControlFlow::Exit
                 }
                 WindowEvent::Resized(dims) => {
                     context.resolution_changed(dims.into());
@@ -104,6 +116,7 @@ fn main() {
                     let tt = t * std::f32::consts::TAU;
 
                     let size = 40. + a.cos() * 10.;
+                    let scale = size / 16.;
 
                     let r = 80. + tt.sin() * 20.;
 
@@ -114,11 +127,7 @@ fn main() {
                     let g = (it + 0.33) % 1.;
                     let b = (it + 0.66) % 1.;
 
-                    ren.sprite(jamjar::drawgroovy::Sprite {
-                        pos: [x, y],
-                        size: [size, size],
-                        tint: [r, g, b, 1.],
-                    });
+                    ren.sprite(Sprite::scaled(atlas.region("bubble"), [x, y], [r, g, b, 1.], [scale, scale]));
                 }
 
                 for hue in 0..4 {
@@ -128,19 +137,11 @@ fn main() {
                         let g = if hue == 1 || hue == 3 { v } else { 0. };
                         let b = if hue == 2 || hue == 3 { v } else { 0. };
 
-                        ren.sprite(jamjar::drawgroovy::Sprite {
-                            pos: [hue as f32 * 32., sat as f32 * 32.],
-                            size: [32., 32.],
-                            tint: [r, g, b, 1.],
-                        });
+                        ren.sprite(Sprite::scaled(atlas.region("white"), [hue as f32 * 32., sat as f32 * 32.], [r, g, b, 1.], [0.5, 0.5]));
                     }
                 }
 
-                ren.sprite(jamjar::drawgroovy::Sprite {
-                    pos: [500., 128.],
-                    size: [50., 50.],
-                    tint: [0., 1., 0., 1.],
-                });
+                ren.sprite(Sprite::scaled(atlas.region("bubble"), [500., 128.], [0., 1., 0., 1.], [3., 3.]));
             }
             _ => (),
         }

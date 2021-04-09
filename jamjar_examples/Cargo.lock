@@ -869,6 +869,7 @@ dependencies = [
  "rodio",
  "serde",
  "serde_yaml 0.8.17",
+ "texture_packer",
  "toml 0.5.8",
  "wasm-bindgen",
  "web-sys",
@@ -1872,6 +1873,15 @@ dependencies = [
  "quote",
  "syn",
  "unicode-xid",
+]
+
+[[package]]
+name = "texture_packer"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46b0983ffc6e338284a5657a3c1560320c963d190de167a90f7eb91e4fdfeba4"
+dependencies = [
+ "image",
 ]
 
 [[package]]

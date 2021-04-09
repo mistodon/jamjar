@@ -12,6 +12,12 @@ pub mod backend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Region {
+    pub pixels: ([u32; 2], [u32; 2]),
+    pub uv: ([f32; 2], [f32; 2]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CanvasMode {
     Direct,
     Intermediate,

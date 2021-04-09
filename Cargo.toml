@@ -7,6 +7,7 @@ edition = "2018"
 
 [features]
 default = ["everything"]
+atlas = ["image", "texture_packer"]
 audio = ["rodio"]
 codegen = ["edres"]
 drawsloth = ["gfx", "windowing"]
@@ -19,10 +20,10 @@ reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "
 resources = ["resource"]
 timing = ["wasm-bindgen"]
 windowing = ["winit"]
-everything = ["audio", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
+everything = ["atlas", "audio", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
 
-opengl = ["gfx-backend-gl"]
 metal = ["gfx-backend-metal"]
+opengl = ["gfx-backend-gl"]
 bypass_spirv_cross = []
 
 [dependencies]
@@ -37,6 +38,7 @@ log = { version = "~0.4.14", optional = true }
 okmath = { path = "../okmath", optional = true }
 serde = { version = "~1.0.125", features = ["derive"] }
 serde_yaml = { version = "~0.8.17", optional = true }
+texture_packer = { version = "~0.22.0", optional = true }
 toml = { version = "~0.5.7", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
