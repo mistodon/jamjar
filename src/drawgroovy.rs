@@ -38,6 +38,7 @@ pub struct Sprite {
     pub size: [f32; 2],
     pub tint: [f32; 4],
     pub atlas_uv: ([f32; 2], [f32; 2]),
+    pub angle: f32,
 }
 
 impl Sprite {
@@ -59,6 +60,7 @@ impl Sprite {
             size: [w as f32 * sx, h as f32 * sy],
             tint,
             atlas_uv: region.uv,
+            angle: 0.,
         }
     }
 
@@ -77,6 +79,7 @@ impl Sprite {
             size: [scaled_w, h],
             tint: [b, b, b, 1.],
             atlas_uv: uv,
+            angle: 0.,
         }
     }
 }
@@ -453,6 +456,7 @@ impl<B: SupportedBackend> DrawContext<B> {
                     size: [0., 0.],
                     tint: [0., 0., 0., 0.],
                     atlas_uv: ([0., 0.], [0., 0.]),
+                    angle: 0.,
                 }, // Note: Dummy sprite for fullscreen quad
             ],
         };

@@ -1,23 +1,20 @@
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
-use jamjar_examples::gen::{data::VOLUMES, Audio};
-
-use jamjar::{
-    audio::{AudioState, Mixer, Sound, Track},
-    resource,
-    timing::{RealClock, RealTimestamp},
-};
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(start)]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn wasm_main() {
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(log::Level::Debug).unwrap();
     main();
 }
 
 fn main() {
+    use jamjar_examples::gen::{data::VOLUMES, Audio};
+
+    use jamjar::{
+        audio::{AudioState, Mixer, Sound, Track},
+        resource,
+        timing::{RealClock, RealTimestamp},
+    };
+
+    jamjar::logging::init_logging();
+
     let (window, event_loop) =
         jamjar::windowing::window_and_event_loop("Window Test", [512, 256]).unwrap();
 
@@ -58,7 +55,7 @@ fn main() {
                 _ => (),
             },
             Event::MainEventsCleared => {
-                let _dt = clock.update();
+                clock.update();
 
                 let fade_in = clock.since(time_at_change).min(1.0) as f32;
                 let fade_out = 1.0 - fade_in;
@@ -74,14 +71,22 @@ fn main() {
                                 key: Audio::Groove,
                                 volume: volume0,
                                 playing: volume0 > 0.0,
+                                looping: true,
+                                feedback_rate: Some(std::time::Duration::from_secs_f64(60. / 80.)),
                             },
                             Track {
                                 key: Audio::Duelling,
                                 volume: volume1,
                                 playing: volume1 > 0.0,
+                                looping: false,
+                                feedback_rate: None,
                             },
                         ],
                     });
+                }
+
+                for feedback in mixer.feedback() {
+                    jamjar::jprintln!("Got feedback from mixer track {}!!!", feedback);
                 }
 
                 window.request_redraw();

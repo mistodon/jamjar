@@ -42,13 +42,6 @@ readonly indexfile=$(sed "s/BINARYNAME/$bin/g" << EOF
           init('./BINARYNAME_bg.wasm');
         });
       });
-
-      // async function run() {
-      //   console.log("Loading WASM for game:");
-      //   await init('./BINARYNAME_bg.wasm');
-      // }
-      //
-      // run();
     </script>
   </body>
 </html>

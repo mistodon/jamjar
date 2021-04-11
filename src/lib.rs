@@ -13,7 +13,6 @@ pub mod drawgroovy;
 #[cfg(feature = "drawsloth")]
 pub mod drawsloth;
 
-#[cfg(feature = "gfx")]
 pub mod draw;
 
 #[cfg(feature = "gfx")]

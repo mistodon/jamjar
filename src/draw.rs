@@ -95,6 +95,7 @@ impl CanvasConfig {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn canvas_properties(
         &self,
         physical_window_size: [u32; 2],

@@ -1,6 +1,4 @@
 ## Now:
-- [x] General-purpose texture atlas API
-- [ ] Add audio capabilities needed by groove_arc
 - [ ] Port groove_arc to jamjar, using drawgroovy
 
 ## Later:

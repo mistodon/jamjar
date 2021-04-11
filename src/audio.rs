@@ -1,6 +1,6 @@
 use std::{
-    borrow::Cow, cmp::Eq, collections::HashMap, hash::Hash, io::Cursor, sync::Arc,
-    thread::JoinHandle,
+    borrow::Cow, cmp::Eq, collections::HashMap, hash::Hash, io::Cursor, sync::{Arc, Mutex},
+    thread::JoinHandle, time::Duration,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -35,11 +35,14 @@ pub struct Sound<K> {
     pub speed: f32,
 }
 
+// TODO: Consider how you might force a restart of a non-looping track?
 #[derive(Debug, Clone, PartialEq)]
 pub struct Track<K: Clone> {
     pub key: K,
     pub volume: f32,
     pub playing: bool,
+    pub looping: bool,
+    pub feedback_rate: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,12 +78,15 @@ pub struct Mixer<K: 'static + Clone + Send + Eq + Hash> {
 
     _thread: Option<JoinHandle<()>>,
     initialized: bool,
+    feedback_buffer: Arc<Mutex<Vec<usize>>>,
 }
 
 impl<K: 'static + Clone + Send + Eq + Hash> Drop for Mixer<K> {
     fn drop(&mut self) {
-        if let Some(thread) = self._thread.take() {
-            self.send(AudioCmd::Quit);
+        if self._thread.is_some() {
+            self.unchecked_send(AudioCmd::Quit);
+
+            let thread = self._thread.take().unwrap();
             thread.join().unwrap();
         }
     }
@@ -89,6 +95,8 @@ impl<K: 'static + Clone + Send + Eq + Hash> Drop for Mixer<K> {
 impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     pub fn new(audio_library: AudioLibrary<K>, audio_volumes: Option<AudioVolumes<K>>) -> Self {
         let audio_volumes = audio_volumes.unwrap_or_default();
+        let feedback_buffer = Arc::new(Mutex::new(Vec::new()));
+        let feedback_buffer_ref = Arc::clone(&feedback_buffer);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -96,7 +104,7 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
 
             let _thread = {
                 let thread = std::thread::spawn(move || {
-                    let mut speaker = Speaker::new(receiver, audio_library, audio_volumes);
+                    let mut speaker = Speaker::new(receiver, audio_library, audio_volumes, feedback_buffer_ref);
                     while speaker.listen() {}
                 });
                 Some(thread)
@@ -106,16 +114,18 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
                 sender,
                 _thread,
                 initialized: false,
+                feedback_buffer,
             }
         }
 
         #[cfg(target_arch = "wasm32")]
         {
-            let speaker = Speaker::new(audio_library, audio_volumes);
+            let speaker = Speaker::new(audio_library, audio_volumes, feedback_buffer_ref);
             Mixer {
                 speaker,
                 _thread: None,
                 initialized: false,
+                feedback_buffer,
             }
         }
     }
@@ -130,6 +140,8 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
             self.initialized = true;
         }
     }
+
+    pub fn quit(self) {}
 
     pub fn update_state(&mut self, state: AudioState<K>) {
         let mut tracks = [
@@ -159,12 +171,25 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
         self.send(AudioCmd::UpdateVolumes(volumes))
     }
 
+    pub fn feedback(&mut self) -> impl Iterator<Item=usize> {
+        let items = {
+            let indiana_jones = Vec::new();
+            let mut buffer = self.feedback_buffer.lock().unwrap();
+            std::mem::replace(&mut *buffer, indiana_jones)
+        };
+
+        items.into_iter()
+    }
+
     fn send(&mut self, cmd: AudioCmd<K>) {
         assert!(
             self.initialized || matches!(cmd, AudioCmd::Prewarm),
             "Mixer must have `init()` called before playing sound"
         );
+        self.unchecked_send(cmd);
+    }
 
+    fn unchecked_send(&mut self, cmd: AudioCmd<K>) {
         #[cfg(not(target_arch = "wasm32"))]
         if self._thread.is_some() {
             self.sender.send(cmd).unwrap();
@@ -186,6 +211,7 @@ struct Speaker<K: Clone + Send + Eq + Hash> {
     volumes: AudioVolumes<K>,
     tracks: [Option<Track<K>>; MAX_TRACKS],
     sinks: [Option<Sink>; MAX_TRACKS],
+    feedback_buffer: Arc<Mutex<Vec<usize>>>
 }
 
 impl<K: Clone + Send + Eq + Hash> Speaker<K> {
@@ -193,6 +219,7 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
         #[cfg(not(target_arch = "wasm32"))] receiver: Receiver<AudioCmd<K>>,
         library: AudioLibrary<K>,
         volumes: AudioVolumes<K>,
+        feedback_buffer: Arc<Mutex<Vec<usize>>>,
     ) -> Self {
         Speaker {
             #[cfg(not(target_arch = "wasm32"))]
@@ -210,6 +237,7 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
                 None, None,
             ],
+            feedback_buffer,
         }
     }
 
@@ -282,21 +310,27 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
                     self.sinks[i] = None;
                 }
                 (None, Some(track)) => {
-                    self.sinks[i] = self.create_sink(track);
+                    self.sinks[i] = self.create_sink(track, i);
                 }
                 (Some(old), Some(new)) => {
-                    if new.key == old.key {
+                    if new.key == old.key && new.feedback_rate == old.feedback_rate {
+                        if new.looping {
+                            self.keep_sink_looping(new, i);
+                        }
+
                         let sink = self.sinks[i].as_mut().unwrap();
+
                         if new.playing {
                             sink.play();
                         } else {
                             sink.pause();
                         }
+
                         let track_specific_volume = *self.volumes.get(&new.key).unwrap_or(&1.0);
                         let volume = track_specific_volume * self.track_volume * new.volume;
                         sink.set_volume(volume);
                     } else {
-                        self.sinks[i] = self.create_sink(new);
+                        self.sinks[i] = self.create_sink(new, i);
                     }
                 }
             }
@@ -305,27 +339,59 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
         self.tracks = tracks;
     }
 
-    fn create_sink(&self, track: &Track<K>) -> Option<Sink> {
+    fn create_sink(&self, track: &Track<K>, sink_index: usize) -> Option<Sink> {
         let track_specific_volume = *self.volumes.get(&track.key).unwrap_or(&1.0);
         let volume = track_specific_volume * self.track_volume * track.volume;
 
-        let audio_bytes = self.library.get(&track.key);
-        if let Some(audio_bytes) = audio_bytes {
-            let cursor = Cursor::new(audio_bytes.clone());
-            let source = Decoder::new(cursor).unwrap();
+        let audio_bytes = self
+            .library
+            .get(&track.key)
+            .expect("Failed to look up audio for given key");
 
-            if let Some((_, handle)) = self.context.as_ref() {
-                let sink = Sink::try_new(handle).unwrap();
-                sink.set_volume(volume);
-                if !track.playing {
-                    sink.pause();
-                }
-                sink.append(source);
-                return Some(sink);
+        if let Some((_, handle)) = self.context.as_ref() {
+            let sink = Sink::try_new(handle).unwrap();
+            sink.set_volume(volume);
+            if !track.playing {
+                sink.pause();
             }
+
+            let source_count = match track.looping {
+                true => 2, // We keep second copy in the buffer at all times
+                false => 1,
+            };
+
+            for _ in 0..source_count {
+                let cursor = Cursor::new(audio_bytes.clone());
+                let source = Decoder::new(cursor).unwrap();
+                match track.feedback_rate {
+                    Some(rate) => {
+                        let feedback_buffer = Arc::clone(&self.feedback_buffer);
+                        sink.append(source.periodic_access(rate, move |_| {
+                            let mut buffer = feedback_buffer.lock().unwrap();
+                            buffer.push(sink_index);
+                        }));
+                    }
+                    None => sink.append(source),
+                }
+            }
+            return Some(sink);
         }
 
         None
+    }
+
+    fn keep_sink_looping(&mut self, track: &Track<K>, sink_index: usize) {
+        let sink = self.sinks[sink_index].as_mut().unwrap();
+        let audio_bytes = self
+            .library
+            .get(&track.key)
+            .expect("Failed to look up audio for given key");
+
+        while sink.len() < 2 {
+            let cursor = Cursor::new(audio_bytes.clone());
+            let source = Decoder::new(cursor).unwrap();
+            sink.append(source);
+        }
     }
 
     fn restart_all_tracks(&mut self) {
@@ -335,7 +401,7 @@ impl<K: Clone + Send + Eq + Hash> Speaker<K> {
         ];
         for (i, track) in self.tracks.iter().enumerate() {
             if let Some(track) = track {
-                self.sinks[i] = self.create_sink(track);
+                self.sinks[i] = self.create_sink(track, i);
             }
         }
     }
