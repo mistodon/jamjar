@@ -576,14 +576,21 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
         let scale_x = (2.0 / canvas_width as f64) as f32;
         let scale_y = (2.0 / canvas_height as f64) as f32;
 
-        let project = |x, y| {
-            #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
+        let project = |x, y, cx, cy, c, s| {
+            let (ox, oy) = (x - cx, y - cy);
+            let (x, y) = (
+                (c * ox - s * oy) + cx,
+                (s * ox + c * oy) + cy,
+            );
             {
-                [(x * scale_x) - 1., -1. * ((y * scale_y) - 1.), 0.]
-            }
-            #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
-            {
-                [(x * scale_x) - 1., (y * scale_y) - 1., 0.]
+                #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
+                {
+                    [(x * scale_x) - 1., -1. * ((y * scale_y) - 1.), 0.]
+                }
+                #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
+                {
+                    [(x * scale_x) - 1., (y * scale_y) - 1., 0.]
+                }
             }
         };
 
@@ -595,24 +602,26 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             };
             let [x, y] = sprite.pos;
             let [w, h] = sprite.size;
+            let [cx, cy] = [x + w / 2., y + h / 2.];
             let ([u0, v0], [uw, vh]) = sprite.atlas_uv;
+            let (s, c) = sprite.angle.sin_cos();
             let p0 = Vertex {
-                offset: project(x, y),
+                offset: project(x, y, cx, cy, c, s),
                 tint: tint,
                 uv: [u0, v0],
             };
             let p1 = Vertex {
-                offset: project(x, y + h),
+                offset: project(x, y + h, cx, cy, c, s),
                 tint: tint,
                 uv: [u0, v0 + vh],
             };
             let p2 = Vertex {
-                offset: project(x + w, y + h),
+                offset: project(x + w, y + h, cx, cy, c, s),
                 tint: tint,
                 uv: [u0 + uw, v0 + vh],
             };
             let p3 = Vertex {
-                offset: project(x + w, y),
+                offset: project(x + w, y, cx, cy, c, s),
                 tint: tint,
                 uv: [u0 + uw, v0],
             };
