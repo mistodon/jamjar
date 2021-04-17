@@ -40,7 +40,7 @@ impl<T> Timestamp<T> {
         Timestamp(0.0, PhantomData)
     }
 
-    pub fn secs(self) -> f64 {
+    pub const fn secs(self) -> f64 {
         self.0
     }
 
@@ -57,7 +57,7 @@ impl<T> Timestamp<T> {
 pub struct Clock<T>(f64, PhantomData<T>);
 
 impl<T> Clock<T> {
-    pub fn new_zero() -> Self {
+    pub const fn new_zero() -> Self {
         Clock(0.0, PhantomData)
     }
 
@@ -65,7 +65,11 @@ impl<T> Clock<T> {
         Clock(_system_secs_f64(), PhantomData)
     }
 
-    pub fn secs(&self) -> f64 {
+    pub const fn zero(&self) -> Timestamp<T> {
+        Timestamp(0.0, PhantomData)
+    }
+
+    pub const fn secs(&self) -> f64 {
         self.0
     }
 
@@ -87,7 +91,7 @@ impl<T> Clock<T> {
         self.0 -= delta;
     }
 
-    pub fn now(&self) -> Timestamp<T> {
+    pub const fn now(&self) -> Timestamp<T> {
         Timestamp(self.0, self.1)
     }
 

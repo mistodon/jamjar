@@ -694,6 +694,8 @@ dependencies = [
 [[package]]
 name = "gfx-auxil"
 version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7b33ecf067f2117668d91c9b0f2e5f223ebd1ffec314caa2f3de27bb580186d"
 dependencies = [
  "fxhash",
  "gfx-hal",
@@ -703,6 +705,8 @@ dependencies = [
 [[package]]
 name = "gfx-backend-gl"
 version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6717c50ab601efe4a669bfb44db615e3888695ac8263222aeaa702642b9fbc2"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -723,6 +727,8 @@ dependencies = [
 [[package]]
 name = "gfx-backend-metal"
 version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dc54b456ece69ef49f8893269ebf24ac70969ed34ba2719c3f3abcc8fbff14e"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -745,6 +751,8 @@ dependencies = [
 [[package]]
 name = "gfx-hal"
 version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1d9cc8d3b573dda62d0baca4f02e0209786e22c562caff001d77c389008781d"
 dependencies = [
  "bitflags",
  "naga",
@@ -1465,7 +1473,11 @@ dependencies = [
 
 [[package]]
 name = "okmath"
-version = "0.1.0"
+version = "0.2.0"
+source = "git+https://github.com/mistodon/okmath?branch=main#c495c99ed241cc770a9742554c0e05d550d30e3a"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "once_cell"
@@ -1573,6 +1585,8 @@ dependencies = [
 [[package]]
 name = "range-alloc"
 version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e935c45e09cc6dcf00d2f0b2d630a58f4095320223d47fc68918722f0538b6"
 
 [[package]]
 name = "raw-window-handle"
