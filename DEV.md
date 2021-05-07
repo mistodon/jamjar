@@ -1,6 +1,6 @@
 ## Now:
 - [ ] Can't have different features based on target, so find a better way
-- [ ] Port groove_arc to jamjar, using drawgroovy
+- [ ] CLI: Pipe stdout/stderr when calling external commands
 
 ## Later:
 Libs:

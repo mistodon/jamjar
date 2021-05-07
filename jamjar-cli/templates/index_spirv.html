@@ -11,11 +11,15 @@
     </style>
   </head>
   <body>
+    <script src="./spirv_cross_wrapper_glsl.js"></script>
     <script type="module">
       import init from './{{ bin_name }}.js';
 
       window.addEventListener("load", () => {
-        init('./{{ bin_name }}_bg.wasm');
+        const module = window.sc_internal_wrapper().then(module => {
+          window.sc_internal = module;
+          init('./{{ bin_name }}_bg.wasm');
+        });
       });
     </script>
   </body>

@@ -66,9 +66,12 @@ pub struct PackageConfig {
 #[derive(Debug)]
 pub struct WebBuildConfig {
     pub app_root: Option<PathBuf>,
+    pub app_name: Option<String>,
     pub bin_name: Option<String>,
     pub output_dir: PathBuf,
     pub features: Vec<String>,
+    pub bypass_spirv_cross: bool,
+    pub debug: bool,
 }
 
 struct AppConfig<'a> {
@@ -353,30 +356,32 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             .map_err(|e| JamjarError::io(e, "Failed to get current directory."))?,
     };
 
-    let app_name = {
-        let manifest_toml = {
-            let manifest_path = cwd.join("Cargo.toml");
-            std::fs::read_to_string(&manifest_path)
-                .map_err(|e| JamjarError::io(e, "Could not read Cargo.toml."))?
-        };
-
-        let manifest = toml::from_str::<CargoManifest>(&manifest_toml)
-            .map_err(|e| JamjarError::TomlError { cause: e })?;
-
-        manifest.package.name.clone()
+    let manifest_toml = {
+        let manifest_path = cwd.join("Cargo.toml");
+        std::fs::read_to_string(&manifest_path)
+            .map_err(|e| JamjarError::io(e, "Could not read Cargo.toml."))?
     };
 
-    let final_bin_name = config.bin_name.as_ref().unwrap_or(&app_name);
+    let manifest = toml::from_str::<CargoManifest>(&manifest_toml)
+        .map_err(|e| JamjarError::TomlError { cause: e })?;
+
+    let app_name = config
+        .app_name
+        .to_owned()
+        .unwrap_or_else(|| manifest.package.name.clone());
+
+    let final_bin_name = config.bin_name.as_ref().unwrap_or(&manifest.package.name);
 
     std::fs::create_dir_all(&config.output_dir)
         .map_err(|e| JamjarError::io(e, "Failed to create output directory."))?;
 
-    println!("Compiling app for release:");
+    let profile = if config.debug { "debug" } else { "release" };
+    println!("Compiling app for {}:", profile);
     {
         let mut cmd = Command::new("cargo");
         cmd.current_dir(&cwd)
             .arg("build")
-            .arg("--release")
+            .arg(if config.debug { "" } else { "--release" })
             .arg("--target")
             .arg("wasm32-unknown-unknown");
 
@@ -405,7 +410,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         let mut wasm_path = cwd.clone();
         wasm_path.push("target");
         wasm_path.push("wasm32-unknown-unknown");
-        wasm_path.push("release");
+        wasm_path.push(profile);
         wasm_path.push(format!("{}.wasm", &final_bin_name));
 
         let mut cmd = Command::new("wasm-bindgen");
@@ -430,11 +435,16 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         // index.html
         #[derive(Serialize)]
         struct IndexHtml<'a> {
+            app_name: &'a str,
             bin_name: &'a str,
         }
 
-        let template = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/index.html"));
+        let no_spirv_template = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/index.html"));
+        let spirv_template = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/index_spirv.html"));
+        let template = if config.bypass_spirv_cross { no_spirv_template } else { spirv_template };
+
         let context = IndexHtml {
+            app_name: &app_name,
             bin_name: &final_bin_name,
         };
 
@@ -448,6 +458,22 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
 
         std::fs::write(&index_path, &html)
             .map_err(|e| JamjarError::io(e, "Failed to write index.html"))?;
+    }
+
+    let spirv_js = include_str!("../ext/spirv_cross/spirv_cross_wrapper_glsl.js");
+    let spirv_wasm = include_bytes!("../ext/spirv_cross/spirv_cross_wrapper_glsl.wasm");
+
+    if !config.bypass_spirv_cross {
+        println!("Copying spirv_cross scripts:");
+
+        let mut js_path = config.output_dir.clone();
+        js_path.push("spirv_cross_wrapper_glsl.js");
+
+        let mut wasm_path = config.output_dir.clone();
+        wasm_path.push("spirv_cross_wrapper_glsl.wasm");
+
+        std::fs::write(&js_path, spirv_js)?;
+        std::fs::write(&wasm_path, spirv_wasm)?;
     }
 
     Ok(config.output_dir.clone())
