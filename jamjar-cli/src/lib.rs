@@ -2,75 +2,55 @@ use std::io::Error as IOError;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use failure::Fail;
 use handlebars::{Handlebars, TemplateRenderError};
 use image::ImageError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use toml::de::Error as TomlError;
 use zip::{
     result::ZipError,
     write::{FileOptions, ZipWriter},
 };
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum JamjarError {
-    #[fail(display = "an IO error occurred: {}", message)]
-    IOError {
-        #[cause]
-        cause: IOError,
-        message: String,
-    },
+    #[error("an IO error occurred")]
+    IOError(#[from] IOError),
 
-    #[fail(display = "an error occurred while parsing TOML file: {}", cause)]
+    #[error("an IO error occurred: {message}\n{cause}")]
+    IOContextError { cause: IOError, message: String },
+
+    #[error("an error occurred while parsing TOML file")]
     TomlError {
-        #[cause]
+        #[from]
         cause: TomlError,
     },
 
-    #[fail(display = "an error occurred while writing to template: {}", cause)]
+    #[error("an error occurred while writing to template")]
     TemplateError {
-        #[cause]
+        #[from]
         cause: TemplateRenderError,
     },
 
-    #[fail(display = "failed to decode icon image: {}", _0)]
-    ImageError(ImageError),
+    #[error("failed to decode icon image")]
+    ImageError(#[from] ImageError),
 
-    #[fail(display = "external command `{}` failed", _0)]
+    #[error("external command `{0}` failed")]
     ExternalCommandError(&'static str),
 
-    #[fail(display = "an error occurred while compressing data: {}", _0)]
-    ZipError(#[cause] ZipError),
+    #[error("an error occurred while compressing data")]
+    ZipError(#[from] ZipError),
 
-    #[fail(display = "an error occurred: {}", _0)]
+    #[error("an error occurred: {0}")]
     StringError(String),
 }
 
 impl JamjarError {
     fn io(cause: IOError, message: &str) -> Self {
-        JamjarError::IOError {
+        JamjarError::IOContextError {
             cause,
             message: message.into(),
         }
-    }
-}
-
-impl From<IOError> for JamjarError {
-    fn from(cause: IOError) -> Self {
-        let message = cause.to_string();
-        JamjarError::IOError { cause, message }
-    }
-}
-
-impl From<ZipError> for JamjarError {
-    fn from(e: ZipError) -> Self {
-        JamjarError::ZipError(e)
-    }
-}
-
-impl From<ImageError> for JamjarError {
-    fn from(e: ImageError) -> Self {
-        JamjarError::ImageError(e)
     }
 }
 
@@ -323,7 +303,7 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
         ];
 
         for &((width, height), filename) in sizes {
-            use image::FilterType;
+            use image::imageops::FilterType;
 
             let resized_image = image.resize_exact(width, height, FilterType::CatmullRom);
             resized_image.save(temp_icons_dir.join(filename))?;

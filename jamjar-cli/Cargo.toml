@@ -15,11 +15,11 @@ default = ["cli"]
 cli = ["structopt"]
 
 [dependencies]
-failure = "~0.1.8"
 handlebars = "~3.5.4"
 image = "~0.23.14"
 serde = { version = "~1.0.125", features = ["derive"] }
 tempfile = "~3.2.0"
+thiserror = "~1.0.24"
 toml = "~0.5.8"
 zip = "~0.5.11"
 
