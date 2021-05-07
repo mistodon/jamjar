@@ -64,6 +64,19 @@ impl Sprite {
         }
     }
 
+    pub fn sized(region: Region, pos: [f32; 2], tint: [f32; 4], size: [f32; 2]) -> Self {
+        let [x, y] = pos;
+        let [sx, sy] = size;
+
+        Sprite {
+            pos: [x as f32, y as f32],
+            size: [sx, sy],
+            tint,
+            atlas_uv: region.uv,
+            angle: 0.,
+        }
+    }
+
     pub fn gauge(region: Region, pos: [f32; 2], proportion: f32, brightness: f32) -> Self {
         let [x, y] = pos;
         let (_, [w, h]) = region.pixels;
@@ -855,7 +868,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                             image_view: surface_image.borrow(),
                             clear_value: ClearValue {
                                 color: ClearColor {
-                                    float32: [1., 0., 1., 1.],
+                                    float32: self.clear_color,
                                 },
                             },
                         }]),

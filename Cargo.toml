@@ -28,6 +28,7 @@ bypass_spirv_cross = []
 
 [dependencies]
 buttons = { version = "~0.3.1", features = ["winit-support"], optional = true }
+dirty_static = { version = "~0.1.1", optional = true }
 edres = { version = "~0.5", optional = true, features = ["experimental-files-enum", "toml-parsing", "yaml-parsing"] }
 gfx-hal = { version = "~0.7.0", optional = true }
 gfx-backend-gl = { version = "~0.7.1", optional = true }
@@ -44,7 +45,6 @@ toml = { version = "~0.5.7", optional = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_log = { version = "~0.2.0", optional = true }
 console_error_panic_hook = { version = "~0.1.6", optional = true }
-dirty_static = { version = "~0.1.1", features = ["force-static"], optional = true }
 dymod = { version = "~0.3", optional = true, default-features = false, features = ["force-static"] }
 gfx-auxil = { version = "~0.8.0", optional = true }
 resource = { version = "~0.5", optional = true, features = ["experimental-resource-list", "force-static"] }
@@ -53,7 +53,6 @@ wasm-bindgen = { version = "~0.2.73", optional = true }
 winit = { version = "~0.24", optional = true, features = ["web-sys"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-dirty_static = { version = "~0.1.1", optional = true }
 dymod = { version = "~0.3", optional = true }
 resource = { version = "~0.5", optional = true, features = ["experimental-resource-list"] }
 rodio = { version = "~0.13.1", optional = true, features = ["flac", "vorbis", "wav"], default-features = false }
