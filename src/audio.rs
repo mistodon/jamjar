@@ -1,6 +1,12 @@
 use std::{
-    borrow::Cow, cmp::Eq, collections::HashMap, hash::Hash, io::Cursor, sync::{Arc, Mutex},
-    thread::JoinHandle, time::Duration,
+    borrow::Cow,
+    cmp::Eq,
+    collections::HashMap,
+    hash::Hash,
+    io::Cursor,
+    sync::{Arc, Mutex},
+    thread::JoinHandle,
+    time::Duration,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -104,7 +110,8 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
 
             let _thread = {
                 let thread = std::thread::spawn(move || {
-                    let mut speaker = Speaker::new(receiver, audio_library, audio_volumes, feedback_buffer_ref);
+                    let mut speaker =
+                        Speaker::new(receiver, audio_library, audio_volumes, feedback_buffer_ref);
                     while speaker.listen() {}
                 });
                 Some(thread)
@@ -171,7 +178,7 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
         self.send(AudioCmd::UpdateVolumes(volumes))
     }
 
-    pub fn feedback(&mut self) -> impl Iterator<Item=usize> {
+    pub fn feedback(&mut self) -> impl Iterator<Item = usize> {
         let items = {
             let indiana_jones = Vec::new();
             let mut buffer = self.feedback_buffer.lock().unwrap();
@@ -211,7 +218,7 @@ struct Speaker<K: Clone + Send + Eq + Hash> {
     volumes: AudioVolumes<K>,
     tracks: [Option<Track<K>>; MAX_TRACKS],
     sinks: [Option<Sink>; MAX_TRACKS],
-    feedback_buffer: Arc<Mutex<Vec<usize>>>
+    feedback_buffer: Arc<Mutex<Vec<usize>>>,
 }
 
 impl<K: Clone + Send + Eq + Hash> Speaker<K> {

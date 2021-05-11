@@ -1,3 +1,9 @@
+#[cfg(feature = "draw_groove")]
+pub mod groove;
+
+#[cfg(feature = "draw_sloth")]
+pub mod sloth;
+
 pub mod backend {
     #[cfg(feature = "opengl")]
     pub type OpenGL = gfx_backend_gl::Backend;
@@ -14,6 +20,13 @@ pub mod backend {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Region {
     pub pixels: ([u32; 2], [u32; 2]),
+    pub uv: ([f32; 2], [f32; 2]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlyphRegion {
+    pub pos: [f32; 2],
+    pub size: [f32; 2],
     pub uv: ([f32; 2], [f32; 2]),
 }
 

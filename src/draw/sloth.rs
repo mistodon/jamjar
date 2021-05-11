@@ -17,14 +17,14 @@ compile_error!("Web builds (wasm32) require the `opengl` feature to be enabled."
 
 #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
-    include_bytes!("../assets/shaders/compiled/sloth.vert.spv"),
-    include_bytes!("../assets/shaders/compiled/sloth.frag.spv"),
+    include_bytes!("../../assets/shaders/compiled/sloth.vert.spv"),
+    include_bytes!("../../assets/shaders/compiled/sloth.frag.spv"),
 );
 
 #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
-    include_bytes!("../assets/shaders/compiled/sloth.es.vert"),
-    include_bytes!("../assets/shaders/compiled/sloth.es.frag"),
+    include_bytes!("../../assets/shaders/compiled/sloth.es.vert"),
+    include_bytes!("../../assets/shaders/compiled/sloth.es.frag"),
 );
 
 fn wiperr<T>(_: T) -> () {}
@@ -63,7 +63,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             device,
             queue_group,
             mut command_pool,
-        ) = easy::init::<B>(window, "jamjar_drawsloth", 1)
+        ) = easy::init::<B>(window, "jamjar_sloth", 1)
             .map_err(|msg| eprintln!("easy::init error: {}", msg))?;
 
         let mut command_buffer = unsafe { command_pool.allocate_one(hal::command::Level::Primary) };

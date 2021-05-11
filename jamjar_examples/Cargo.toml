@@ -14,7 +14,7 @@ glsl = ["jamjar/bypass_spirv_cross"]
 image = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
-jamjar = { path = "..", features = ["everything", "drawsloth", "drawgroovy"] }
+jamjar = { path = "..", features = ["everything", "draw_sloth", "draw_groove"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "*" }

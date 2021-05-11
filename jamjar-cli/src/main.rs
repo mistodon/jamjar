@@ -16,19 +16,12 @@ struct PackageCmd {
     app_name: Option<String>,
 
     /// The directory to put the packaged archive into.
-    #[structopt(
-        long = "output_dir",
-        short = "o",
-        default_value = "./target/jamjar",
-    )]
+    #[structopt(long = "output_dir", short = "o", default_value = "./target/jamjar")]
     #[structopt(parse(from_os_str))]
     output_dir: PathBuf,
 
     /// The icon image to use for the app. Defaults to `icon.png` in the app root.
-    #[structopt(
-        long = "icon_path",
-        short = "i",
-    )]
+    #[structopt(long = "icon_path", short = "i")]
     #[structopt(parse(from_os_str))]
     icon_path: Option<PathBuf>,
 

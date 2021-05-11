@@ -5,7 +5,7 @@ use std::mem::ManuallyDrop;
 use image::RgbaImage;
 
 use crate::{
-    draw::{CanvasConfig, CanvasMode, Region},
+    draw::{CanvasConfig, CanvasMode, GlyphRegion, Region},
     gfx::{self, easy, prelude::*, SupportedBackend},
     utils::over,
     windowing::{
@@ -19,14 +19,14 @@ compile_error!("Web builds (wasm32) require the `opengl` feature to be enabled."
 
 #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
-    include_bytes!("../assets/shaders/compiled/groovy.vert.spv"),
-    include_bytes!("../assets/shaders/compiled/groovy.frag.spv"),
+    include_bytes!("../../assets/shaders/compiled/groove.vert.spv"),
+    include_bytes!("../../assets/shaders/compiled/groove.frag.spv"),
 );
 
 #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
 const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
-    include_bytes!("../assets/shaders/compiled/groovy.es.vert"),
-    include_bytes!("../assets/shaders/compiled/groovy.es.frag"),
+    include_bytes!("../../assets/shaders/compiled/groove.es.vert"),
+    include_bytes!("../../assets/shaders/compiled/groove.es.frag"),
 );
 
 pub const MAX_SPRITES: usize = 10000;
@@ -71,6 +71,16 @@ impl Sprite {
         Sprite {
             pos: [x as f32, y as f32],
             size: [sx, sy],
+            tint,
+            atlas_uv: region.uv,
+            angle: 0.,
+        }
+    }
+
+    pub fn glyph(region: GlyphRegion, tint: [f32; 4]) -> Self {
+        Sprite {
+            pos: region.pos,
+            size: region.size,
             tint,
             atlas_uv: region.uv,
             angle: 0.,
@@ -172,7 +182,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             device,
             mut queue_group,
             mut command_pool,
-        ) = easy::init::<B>(window, "jamjar_drawgroovy", 1)
+        ) = easy::init::<B>(window, "jamjar_groove", 1)
             .map_err(|msg| eprintln!("easy::init error: {}", msg))?;
 
         let mut command_buffer = unsafe { command_pool.allocate_one(hal::command::Level::Primary) };
@@ -548,6 +558,29 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
     pub fn sprite(&mut self, sprite: Sprite) {
         self.sprites.push(sprite);
     }
+
+    pub fn update_atlas(&mut self, new_atlas: &RgbaImage) {
+        // TODO: Why do we even store this?
+        self.context.texture_atlas = new_atlas.clone();
+
+        let Resources {
+            command_pool,
+            atlas_image,
+            ..
+        } = &mut *self.context.resources;
+
+        unsafe {
+            gfx::upload_image::<B>(
+                &self.context.device,
+                &self.context.adapter.physical_device,
+                command_pool,
+                &mut self.context.queue_group.queues[0],
+                &atlas_image.1,
+                new_atlas.dimensions(),
+                &new_atlas,
+            );
+        }
+    }
 }
 
 impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
@@ -591,10 +624,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
 
         let project = |x, y, cx, cy, c, s| {
             let (ox, oy) = (x - cx, y - cy);
-            let (x, y) = (
-                (c * ox - s * oy) + cx,
-                (s * ox + c * oy) + cy,
-            );
+            let (x, y) = ((c * ox - s * oy) + cx, (s * ox + c * oy) + cy);
             {
                 #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
                 {

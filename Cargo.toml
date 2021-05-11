@@ -10,8 +10,9 @@ default = ["everything"]
 atlas = ["image", "texture_packer"]
 audio = ["rodio"]
 codegen = ["edres"]
-drawsloth = ["gfx", "windowing"]
-drawgroovy = ["gfx", "windowing"]
+draw_sloth = ["gfx", "windowing"]
+draw_groove = ["gfx", "windowing"]
+font = ["rusttype"]
 gfx = ["gfx-hal", "gfx-auxil", "image"]
 input = ["buttons", "windowing"]
 logging = ["console_log", "console_error_panic_hook", "log"]
@@ -20,11 +21,13 @@ reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "
 resources = ["resource"]
 timing = ["wasm-bindgen"]
 windowing = ["winit"]
-everything = ["atlas", "audio", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
+everything = ["atlas", "audio", "font", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
 
 metal = ["gfx-backend-metal"]
 opengl = ["gfx-backend-gl"]
 bypass_spirv_cross = []
+
+metaldev = ["everything", "draw_groove", "draw_sloth", "metal"]
 
 [dependencies]
 buttons = { version = "~0.3.1", features = ["winit-support"], optional = true }
@@ -37,6 +40,7 @@ image = { version = "~0.23.14", optional = true }
 lazy_static = { version = "~1.4.0", optional = true }
 log = { version = "~0.4.14", optional = true }
 okmath = { git = "https://github.com/mistodon/okmath", branch = "main", optional = true }
+rusttype = { version = "~0.9.2", features = ["gpu_cache"], optional = true }
 serde = { version = "~1.0.125", features = ["derive"] }
 serde_yaml = { version = "~0.8.17", optional = true }
 texture_packer = { version = "~0.22.0", optional = true }

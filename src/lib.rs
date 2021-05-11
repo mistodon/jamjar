@@ -7,13 +7,10 @@ pub mod atlas;
 #[cfg(feature = "audio")]
 pub mod audio;
 
-#[cfg(feature = "drawgroovy")]
-pub mod drawgroovy;
-
-#[cfg(feature = "drawsloth")]
-pub mod drawsloth;
-
 pub mod draw;
+
+#[cfg(feature = "font")]
+pub mod font;
 
 #[cfg(feature = "gfx")]
 pub mod gfx;

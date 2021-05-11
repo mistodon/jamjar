@@ -15,7 +15,7 @@ fn main() {
 
     let mut canvas_config = CanvasConfig::set_scaled(resolution);
     let mut context =
-        jamjar::drawsloth::DrawContext::<backend::Whatever>::new(&window, canvas_config).unwrap();
+        jamjar::draw::sloth::DrawContext::<backend::Whatever>::new(&window, canvas_config).unwrap();
 
     let src_image = image::load_from_memory(&jamjar::resource!("assets/images/blit.png"))
         .unwrap()

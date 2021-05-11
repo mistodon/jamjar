@@ -439,9 +439,17 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             bin_name: &'a str,
         }
 
-        let no_spirv_template = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/index.html"));
-        let spirv_template = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/index_spirv.html"));
-        let template = if config.bypass_spirv_cross { no_spirv_template } else { spirv_template };
+        let no_spirv_template =
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/index.html"));
+        let spirv_template = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/templates/index_spirv.html"
+        ));
+        let template = if config.bypass_spirv_cross {
+            no_spirv_template
+        } else {
+            spirv_template
+        };
 
         let context = IndexHtml {
             app_name: &app_name,
