@@ -6,7 +6,7 @@ pub fn wasm_main() {
 
 fn main() {
     use jamjar::{
-        atlas::FontImageAtlas,
+        atlas::{Atlas, FontImageAtlas},
         draw::{
             backend,
             groove::{DrawContext, Sprite},
@@ -31,15 +31,15 @@ fn main() {
 
     let font = Font::new(jamjar::resource!("assets/fonts/chocolate_11.ttf").to_vec());
 
+    let mut atlas_image = image::RgbaImage::new(4096, 4096);
     let mut atlas = FontImageAtlas::new([4096, 4096], 1024);
-    atlas.images.insert("white".to_owned(), white_img);
-    atlas.images.insert("bubble".to_owned(), bubble_img);
-    atlas.compile_if_modified();
+    atlas.images.insert(("white".to_owned(), white_img));
+    atlas.images.insert(("bubble".to_owned(), bubble_img));
+    atlas.compile_into(&mut atlas_image);
 
     let mut canvas_config = CanvasConfig::pixel_scaled(resolution);
     let mut context =
-        DrawContext::<backend::Whatever>::new(&window, canvas_config, atlas.image().clone())
-            .unwrap();
+        DrawContext::<backend::Whatever>::new(&window, canvas_config, atlas_image.clone()).unwrap();
 
     let mut clock = jamjar::timing::RealClock::new_now();
 
@@ -131,7 +131,7 @@ fn main() {
                     let b = (it + 0.66) % 1.;
 
                     ren.sprite(Sprite::scaled(
-                        atlas.images.region("bubble"),
+                        atlas.images.fetch("bubble"),
                         [x, y],
                         [r, g, b, 1.],
                         [scale, scale],
@@ -146,7 +146,7 @@ fn main() {
                         let b = if hue == 2 || hue == 3 { v } else { 0. };
 
                         ren.sprite(Sprite::scaled(
-                            atlas.images.region("white"),
+                            atlas.images.fetch("white"),
                             [hue as f32 * 32., sat as f32 * 32.],
                             [r, g, b, 1.],
                             [0.5, 0.5],
@@ -155,7 +155,7 @@ fn main() {
                 }
 
                 ren.sprite(Sprite::scaled(
-                    atlas.images.region("bubble"),
+                    atlas.images.fetch("bubble"),
                     [500., 128.],
                     [0., 1., 0., 1.],
                     [3., 3.],
@@ -164,11 +164,11 @@ fn main() {
                 let glyph = font.test_glyph('H', [100., 100.]);
                 atlas.fonts.insert(&glyph);
 
-                if atlas.compile_if_modified() {
-                    ren.update_atlas(atlas.image());
+                if atlas.modified() && atlas.compile_into(&mut atlas_image) {
+                    ren.update_atlas(&atlas_image);
                 }
 
-                let glyph_region = atlas.fonts.region(&glyph);
+                let glyph_region = atlas.fonts.fetch(&glyph);
                 if let Some(glyph_region) = glyph_region {
                     let glyph_sprite = Sprite::glyph(glyph_region, [1., 1., 0., 1.]);
                     ren.sprite(glyph_sprite);

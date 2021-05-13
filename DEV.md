@@ -1,4 +1,12 @@
 ## Now:
+- [ ] Atlas stuff
+    - [x] Rename atlas feature to image_atlas
+    - [x] Reorganize atlas modules
+    - [x] Add Atlas<Insert, Fetch, Storage> trait
+        - insert, fetch, compile_into
+    - [ ] Add finish_with_text(self, &mut FontAtlas) method to Renderer
+        - As well as a .glyph() method for queueing glyphs to draw
+        - The finish method turns glyphs into sprites and updates the atlas
 - [ ] Can't have different features based on target, so find a better way
 - [ ] CLI: Pipe stdout/stderr when calling external commands
 

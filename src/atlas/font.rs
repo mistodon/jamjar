@@ -1,48 +1,7 @@
-use std::hash::Hash;
-
 use image::RgbaImage;
 use rusttype::gpu_cache::Cache;
 
-use crate::{atlas::ImageAtlas, draw::GlyphRegion, font::Glyph};
-
-pub struct FontImageAtlas<'a, K: Clone + Hash + Eq> {
-    pub images: ImageAtlas<'a, K>,
-    pub fonts: FontAtlas,
-    backing_image: RgbaImage,
-}
-
-impl<'a, K: Clone + Hash + Eq> FontImageAtlas<'a, K> {
-    pub fn new(size: [u32; 2], split_at: u32) -> Self {
-        assert!(split_at < size[0]);
-
-        let height = size[1];
-        let other_width = size[0] - split_at;
-
-        FontImageAtlas {
-            images: ImageAtlas::with_area_in_size(([split_at, 0], [other_width, height]), size),
-            fonts: FontAtlas::with_area_in_size(([0, 0], [split_at, height]), size),
-            backing_image: RgbaImage::new(size[0], size[1]),
-        }
-    }
-
-    pub fn compile_if_modified(&mut self) -> bool {
-        let mut updated = false;
-
-        if self.images.modified() {
-            updated |= self.images.compile_into(&mut self.backing_image);
-        }
-
-        if self.fonts.modified() {
-            updated |= self.fonts.compile_into(&mut self.backing_image);
-        }
-
-        updated
-    }
-
-    pub fn image(&self) -> &RgbaImage {
-        &self.backing_image
-    }
-}
+use crate::{atlas::Atlas, draw::GlyphRegion, font::Glyph};
 
 pub struct FontAtlas {
     glyph_cache: Cache<'static>,
@@ -78,12 +37,21 @@ impl FontAtlas {
         }
     }
 
-    pub fn insert(&mut self, glyph: &Glyph) {
+    pub fn compile(&mut self) -> RgbaImage {
+        let [bw, bh] = self.backing_image_size;
+        let mut atlas = RgbaImage::new(bw, bh);
+        self.compile_into(&mut atlas);
+        atlas
+    }
+}
+
+impl Atlas<&Glyph, Glyph, Option<GlyphRegion>, RgbaImage> for FontAtlas {
+    fn insert(&mut self, insertion: &Glyph) {
         self.glyph_cache
-            .queue_glyph(glyph.font_id, glyph.glyph.clone());
+            .queue_glyph(insertion.font_id, insertion.glyph.clone());
     }
 
-    pub fn region(&self, glyph: &Glyph) -> Option<GlyphRegion> {
+    fn fetch(&self, key: &Glyph) -> Option<GlyphRegion> {
         let [bw, bh] = self.backing_image_size;
         let ([ax, ay], [aw, ah]) = self.available_area;
         let scale_u = aw as f32 / bw as f32;
@@ -91,13 +59,10 @@ impl FontAtlas {
         let off_u = ax as f32 / bw as f32;
         let off_v = ay as f32 / bh as f32;
 
-        let scale = glyph.glyph.scale();
-        let ascent = glyph.glyph.font().v_metrics(scale).ascent;
+        let scale = key.glyph.scale();
+        let ascent = key.glyph.font().v_metrics(scale).ascent;
 
-        let coords = self
-            .glyph_cache
-            .rect_for(glyph.font_id, &glyph.glyph)
-            .unwrap();
+        let coords = self.glyph_cache.rect_for(key.font_id, &key.glyph).unwrap();
 
         coords.map(|(uv_rect, px_rect)| {
             use rusttype::Point;
@@ -122,14 +87,7 @@ impl FontAtlas {
         })
     }
 
-    pub fn compile(&mut self) -> RgbaImage {
-        let [bw, bh] = self.backing_image_size;
-        let mut atlas = RgbaImage::new(bw, bh);
-        self.compile_into(&mut atlas);
-        atlas
-    }
-
-    pub fn compile_into(&mut self, atlas: &mut RgbaImage) -> bool {
+    fn compile_into(&mut self, dest: &mut RgbaImage) -> bool {
         let mut upload_required = false;
 
         let ([ax, ay], _) = self.available_area;
@@ -144,7 +102,7 @@ impl FontAtlas {
                 for dy in 0..h {
                     for dx in 0..w {
                         let alpha = data[(dy * w + dx) as usize];
-                        atlas.put_pixel(x + ax + dx, y + ay + dy, [255, 255, 255, alpha].into());
+                        dest.put_pixel(x + ax + dx, y + ay + dy, [255, 255, 255, alpha].into());
                     }
                 }
 
@@ -156,7 +114,7 @@ impl FontAtlas {
         upload_required
     }
 
-    pub fn modified(&self) -> bool {
+    fn modified(&self) -> bool {
         self.modified
     }
 }

@@ -7,7 +7,7 @@ edition = "2018"
 
 [features]
 default = ["everything"]
-atlas = ["image", "texture_packer"]
+image_atlas = ["image", "texture_packer"]
 audio = ["rodio"]
 codegen = ["edres"]
 draw_sloth = ["gfx", "windowing"]
@@ -21,7 +21,7 @@ reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "
 resources = ["resource"]
 timing = ["wasm-bindgen"]
 windowing = ["winit"]
-everything = ["atlas", "audio", "font", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
+everything = ["image_atlas", "audio", "font", "input", "logging", "math", "reloading", "resources", "timing", "windowing"]
 
 metal = ["gfx-backend-metal"]
 opengl = ["gfx-backend-gl"]

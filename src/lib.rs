@@ -1,7 +1,6 @@
 #[cfg(feature = "codegen")]
 pub mod codegen;
 
-#[cfg(feature = "atlas")]
 pub mod atlas;
 
 #[cfg(feature = "audio")]
