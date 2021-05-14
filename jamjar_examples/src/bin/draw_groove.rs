@@ -162,17 +162,8 @@ fn main() {
                 ));
 
                 let glyph = font.test_glyph('H', [100., 100.]);
-                atlas.fonts.insert(&glyph);
-
-                if atlas.modified() && atlas.compile_into(&mut atlas_image) {
-                    ren.update_atlas(&atlas_image);
-                }
-
-                let glyph_region = atlas.fonts.fetch(&glyph);
-                if let Some(glyph_region) = glyph_region {
-                    let glyph_sprite = Sprite::glyph(glyph_region, [1., 1., 0., 1.]);
-                    ren.sprite(glyph_sprite);
-                }
+                ren.glyphs(vec![glyph], [1., 0., 1., 1.]);
+                ren.finish_with_text(&mut atlas.fonts, None);
             }
             _ => (),
         }

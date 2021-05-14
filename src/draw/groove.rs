@@ -14,6 +14,9 @@ use crate::{
     },
 };
 
+#[cfg(feature = "font")]
+use crate::{atlas::Atlas, font::Glyph};
+
 #[cfg(all(target_arch = "wasm32", not(feature = "opengl")))]
 compile_error!("Web builds (wasm32) require the `opengl` feature to be enabled.");
 
@@ -482,6 +485,9 @@ impl<B: SupportedBackend> DrawContext<B> {
                     angle: 0.,
                 }, // Note: Dummy sprite for fullscreen quad
             ],
+
+            #[cfg(feature = "font")]
+            glyphs: vec![],
         };
         renderer
     }
@@ -552,6 +558,9 @@ pub struct Renderer<'a, B: SupportedBackend> {
         Viewport,
     )>,
     sprites: Vec<Sprite>,
+
+    #[cfg(feature = "font")]
+    glyphs: Vec<(Glyph, [f32; 4])>,
 }
 
 impl<'a, B: SupportedBackend> Renderer<'a, B> {
@@ -559,9 +568,53 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
         self.sprites.push(sprite);
     }
 
-    pub fn update_atlas(&mut self, new_atlas: &RgbaImage) {
-        // TODO: Why do we even store this?
-        self.context.texture_atlas = new_atlas.clone();
+    // TODO: Can we maybe just _borrow_ Glyphs instead of
+    // cloning them all the damn time?
+    #[cfg(feature = "font")]
+    pub fn glyphs<I>(&mut self, glyphs: I, tint: [f32; 4])
+    where
+        I: IntoIterator<Item = Glyph>,
+    {
+        for glyph in glyphs {
+            self.glyphs.push((glyph, tint));
+        }
+    }
+
+    #[cfg(feature = "font")]
+    pub fn finish_with_text<A>(mut self, font_atlas: &mut A, atlas_image: Option<&mut RgbaImage>)
+    where
+        A: Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage>,
+    {
+        for (glyph, _) in &self.glyphs {
+            font_atlas.insert(glyph.clone());
+        }
+
+        let replacement_image = {
+            let dest = atlas_image.unwrap_or(&mut self.context.texture_atlas);
+            let upload = font_atlas.modified() && font_atlas.compile_into(dest);
+            if upload {
+                Some(dest.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(atlas_image) = replacement_image {
+            self.update_atlas(atlas_image);
+        }
+
+        for (glyph, tint) in self.glyphs.drain(..) {
+            let glyph_region = font_atlas.fetch(&glyph);
+            if let Some(glyph_region) = glyph_region {
+                let glyph_sprite = Sprite::glyph(glyph_region, tint);
+                self.sprites.push(glyph_sprite);
+            }
+        }
+    }
+
+    pub fn update_atlas(&mut self, new_atlas: RgbaImage) {
+        let dimensions = new_atlas.dimensions();
+        self.context.texture_atlas = new_atlas;
 
         let Resources {
             command_pool,
@@ -576,8 +629,8 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
                 command_pool,
                 &mut self.context.queue_group.queues[0],
                 &atlas_image.1,
-                new_atlas.dimensions(),
-                &new_atlas,
+                dimensions,
+                &self.context.texture_atlas,
             );
         }
     }
@@ -585,6 +638,11 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
 
 impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
     fn drop(&mut self) {
+        #[cfg(feature = "font")]
+        {
+            assert!(self.glyphs.is_empty(), "Renderer dropped without handling text. (Use `finish_with_text()` before dropping.)");
+        }
+
         let Resources {
             command_pool,
             vertex_buffer,

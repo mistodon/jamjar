@@ -1,14 +1,8 @@
 ## Now:
 - [ ] Atlas stuff
-    - [x] Rename atlas feature to image_atlas
-    - [x] Reorganize atlas modules
-    - [x] Add Atlas<Insert, Fetch, Storage> trait
-        - insert, fetch, compile_into
-    - [ ] Add finish_with_text(self, &mut FontAtlas) method to Renderer
-        - As well as a .glyph() method for queueing glyphs to draw
-        - The finish method turns glyphs into sprites and updates the atlas
-- [ ] Can't have different features based on target, so find a better way
-- [ ] CLI: Pipe stdout/stderr when calling external commands
+    - [ ] Reposition glyphs at draw-time
+    - [ ] Layout text in font module
+    - [ ] Layout text with optional word-wrapping
 
 ## Later:
 Libs:
@@ -17,12 +11,14 @@ Libs:
 - [ ] Scope resource_list! properly so it can find the resource! macro
 - [ ] Ignore unused imports in generated edres files
 - [ ] Proper CI
+- [ ] Can't have different features based on target, so find a better way to do the force-static etc.
 
 CLI:
 - [ ] Package README etc with app
 - [ ] Include git hash, version number, etc in metadata somewhere?
 - [ ] Include OS in filename
 - [ ] Include optional runtime assets?
+- [ ] CLI: Pipe stdout/stderr when calling external commands
 
 ## Long-term:
 - [ ] Reimplement jambrush as another rendering API

@@ -45,10 +45,10 @@ impl FontAtlas {
     }
 }
 
-impl Atlas<&Glyph, Glyph, Option<GlyphRegion>, RgbaImage> for FontAtlas {
-    fn insert(&mut self, insertion: &Glyph) {
+impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage> for FontAtlas {
+    fn insert(&mut self, insertion: Glyph) {
         self.glyph_cache
-            .queue_glyph(insertion.font_id, insertion.glyph.clone());
+            .queue_glyph(insertion.font_id, insertion.glyph);
     }
 
     fn fetch(&self, key: &Glyph) -> Option<GlyphRegion> {
