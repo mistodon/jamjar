@@ -20,6 +20,8 @@ pub mod input;
 #[cfg(feature = "logging")]
 pub mod logging;
 
+pub mod liveloop;
+
 #[cfg(feature = "math")]
 pub mod math;
 

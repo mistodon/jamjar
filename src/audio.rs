@@ -45,6 +45,8 @@ pub struct Sound<K> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Track<K: Clone> {
     pub key: K,
+    // TODO: Play this before looping `key`
+    // pub intro_key: Option<K>,
     pub volume: f32,
     pub playing: bool,
     pub looping: bool,

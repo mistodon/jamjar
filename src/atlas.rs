@@ -10,9 +10,9 @@ mod font_image;
 #[cfg(all(feature = "image_atlas", feature = "font"))]
 pub use self::font_image::*;
 
-pub trait Atlas<Insert, Key: ?Sized, Fetch, Storage> {
+pub trait Atlas<Insert, Key: ?Sized, Fetch, Storage, Updated> {
     fn insert(&mut self, insertion: Insert);
     fn fetch(&self, key: &Key) -> Fetch;
-    fn compile_into(&mut self, dest: &mut Storage) -> bool;
+    fn compile_into(&mut self, dest: &mut Storage) -> Option<Updated>;
     fn modified(&self) -> bool;
 }

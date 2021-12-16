@@ -18,6 +18,12 @@ pub mod backend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PixelRegion {
+    pub upper_left: [u32; 2],
+    pub lower_right: [u32; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Region {
     pub pixels: ([u32; 2], [u32; 2]),
     pub uv: ([f32; 2], [f32; 2]),
@@ -86,7 +92,7 @@ pub struct CanvasConfig {
 impl CanvasConfig {
     pub fn fixed(resolution: [u32; 2]) -> Self {
         CanvasConfig {
-            canvas_mode: CanvasMode::Intermediate,
+            canvas_mode: CanvasMode::Direct,
             resize_mode: ResizeMode::SetLogical(resolution),
             scale_mode: ScaleMode::Set(1.0),
         }
@@ -94,7 +100,7 @@ impl CanvasConfig {
 
     pub fn set_scaled(resolution: [u32; 2]) -> Self {
         CanvasConfig {
-            canvas_mode: CanvasMode::Intermediate,
+            canvas_mode: CanvasMode::Direct,
             resize_mode: ResizeMode::SetLogical(resolution),
             scale_mode: ScaleMode::Max,
         }

@@ -119,6 +119,7 @@ pub fn package_app(config: &PackageConfig) -> Result<PathBuf, JamjarError> {
         cmd.current_dir(&cwd).arg("build").arg("--release");
 
         if !config.features.is_empty() {
+            cmd.arg("--no-default-features");
             cmd.arg("--features");
             cmd.args(config.features.iter());
         }
@@ -391,6 +392,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         }
 
         if !config.features.is_empty() {
+            cmd.arg("--no-default-features");
             cmd.arg("--features");
             cmd.args(config.features.iter());
         }

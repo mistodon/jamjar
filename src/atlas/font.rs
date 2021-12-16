@@ -1,7 +1,7 @@
 use image::RgbaImage;
 use rusttype::gpu_cache::Cache;
 
-use crate::{atlas::Atlas, draw::GlyphRegion, font::Glyph};
+use crate::{atlas::Atlas, draw::{GlyphRegion, PixelRegion}, font::Glyph};
 
 pub struct FontAtlas {
     glyph_cache: Cache<'static>,
@@ -26,10 +26,11 @@ impl FontAtlas {
         FontAtlas {
             glyph_cache: Cache::builder()
                 .dimensions(size[0], size[1])
-                .position_tolerance(0.1)
+                .position_tolerance(1.0)
                 .scale_tolerance(0.1)
                 .pad_glyphs(true)
                 .multithread(true)
+                .align_4x4(true)
                 .build(),
             backing_image_size: backing_size,
             available_area: (topleft, size),
@@ -45,10 +46,11 @@ impl FontAtlas {
     }
 }
 
-impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage> for FontAtlas {
+impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion> for FontAtlas {
     fn insert(&mut self, insertion: Glyph) {
         self.glyph_cache
             .queue_glyph(insertion.font_id, insertion.glyph);
+        self.modified = true;
     }
 
     fn fetch(&self, key: &Glyph) -> Option<GlyphRegion> {
@@ -87,18 +89,31 @@ impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage> for FontAtlas {
         })
     }
 
-    fn compile_into(&mut self, dest: &mut RgbaImage) -> bool {
+    fn compile_into(&mut self, dest: &mut RgbaImage) -> Option<PixelRegion> {
         let mut upload_required = false;
 
         let ([ax, ay], _) = self.available_area;
 
+        let mut updated_min = None;
+        let mut updated_max = None;
+
         self.glyph_cache
             .cache_queued(|dest_rect, data| {
+                use std::cmp::{min, max};
                 use rusttype::Point;
 
                 let Point { x, y } = dest_rect.min;
                 let w = dest_rect.width();
                 let h = dest_rect.height();
+
+                let glyph_min = [ax + x, ay + y];
+                let glyph_max = [glyph_min[0] + w - 1, glyph_min[1] + h - 1];
+                let old_min = updated_min.unwrap_or(glyph_min);
+                let old_max = updated_max.unwrap_or(glyph_max);
+
+                updated_min = Some([min(glyph_min[0], old_min[0]), min(glyph_min[1], old_min[1])]);
+                updated_max = Some([max(glyph_max[0], old_max[0]), max(glyph_max[1], old_max[1])]);
+
                 for dy in 0..h {
                     for dx in 0..w {
                         let alpha = data[(dy * w + dx) as usize];
@@ -110,8 +125,15 @@ impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage> for FontAtlas {
             })
             .unwrap();
 
-        self.modified = true;
-        upload_required
+        self.modified = false;
+
+        match (updated_min, updated_max) {
+            (Some(min), Some(max)) => Some(PixelRegion {
+                upper_left: min,
+                lower_right: max,
+            }),
+            _ => None,
+        }
     }
 
     fn modified(&self) -> bool {

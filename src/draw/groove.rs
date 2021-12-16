@@ -5,8 +5,9 @@ use std::mem::ManuallyDrop;
 use image::RgbaImage;
 
 use crate::{
-    draw::{CanvasConfig, CanvasMode, GlyphRegion, Region},
+    draw::{CanvasConfig, CanvasMode, GlyphRegion, PixelRegion, Region},
     gfx::{self, easy, prelude::*, SupportedBackend},
+    math::*,
     utils::over,
     windowing::{
         dpi::{LogicalSize, PhysicalSize},
@@ -37,15 +38,13 @@ const VERTEX_BUFFER_LEN: usize = MAX_SPRITES * 6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sprite {
-    pub pos: [f32; 2],
-    pub size: [f32; 2],
+    pub corners: [[f32; 2]; 4],
     pub tint: [f32; 4],
     pub atlas_uv: ([f32; 2], [f32; 2]),
-    pub angle: f32,
 }
 
 impl Sprite {
-    pub fn new(region: Region, pos: [f32; 2]) -> Self {
+    pub fn simple(region: Region, pos: [f32; 2]) -> Self {
         Self::tinted(region, pos, [1., 1., 1., 1.])
     }
 
@@ -53,59 +52,91 @@ impl Sprite {
         Self::scaled(region, pos, tint, [1., 1.])
     }
 
-    pub fn scaled(region: Region, pos: [f32; 2], tint: [f32; 4], scale: [f32; 2]) -> Self {
-        let [x, y] = pos;
-        let (_, [w, h]) = region.pixels;
-        let [sx, sy] = scale;
-
-        Sprite {
-            pos: [x as f32, y as f32],
-            size: [w as f32 * sx, h as f32 * sy],
-            tint,
-            atlas_uv: region.uv,
-            angle: 0.,
-        }
-    }
-
     pub fn sized(region: Region, pos: [f32; 2], tint: [f32; 4], size: [f32; 2]) -> Self {
         let [x, y] = pos;
-        let [sx, sy] = size;
+        let [w, h] = size;
 
         Sprite {
-            pos: [x as f32, y as f32],
-            size: [sx, sy],
+            corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
             tint,
             atlas_uv: region.uv,
-            angle: 0.,
         }
     }
 
-    pub fn glyph(region: GlyphRegion, tint: [f32; 4]) -> Self {
+    pub fn scaled(region: Region, pos: [f32; 2], tint: [f32; 4], scale: [f32; 2]) -> Self {
+        let (_, size) = region.pixels;
+        let size = Vec2::new(scale) * Vec2::new(size).as_f32();
+
+        Self::sized(region, pos, tint, size.0)
+    }
+
+    pub fn rotated(
+        region: Region,
+        center: [f32; 2],
+        tint: [f32; 4],
+        scale: [f32; 2],
+        radians: f32,
+    ) -> Self {
+        let (_, size) = region.pixels;
+        let center = Vec2::new(center);
+        let extent = (Vec2::new(scale) * Vec2::new(size).as_f32()) / 2.;
+        let ortho = extent * vec2(1., -1.);
+        let (s, c) = radians.sin_cos();
+        let rot = Mat2::new([[c, -s], [s, c]]);
+
         Sprite {
-            pos: region.pos,
-            size: region.size,
+            corners: [
+                (rot * (center - extent)).0,
+                (rot * (center - ortho)).0,
+                (rot * (center + extent)).0,
+                (rot * (center + ortho)).0,
+            ],
             tint,
             atlas_uv: region.uv,
-            angle: 0.,
+        }
+    }
+
+    pub fn glyph(region: GlyphRegion, tint: [f32; 4], display_scale_factor: f64) -> Self {
+        let sf = display_scale_factor as f32;
+        let pos = Vec2::new(region.pos) / sf;
+        let size = Vec2::new(region.size) / sf;
+        let [x, y] = pos.0;
+        let [w, h] = size.0;
+        Sprite {
+            corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
+            tint,
+            atlas_uv: region.uv,
         }
     }
 
     pub fn gauge(region: Region, pos: [f32; 2], proportion: f32, brightness: f32) -> Self {
-        let [x, y] = pos;
-        let (_, [w, h]) = region.pixels;
-        let (x, y, w, h) = (x as f32, y as f32, w as f32, h as f32);
+        let [w, h] = Vec2::new(region.pixels.1).as_f32().0;
 
         let mut uv = region.uv;
         uv.1[0] *= proportion;
 
         let scaled_w = w * proportion;
         let b = brightness;
+        let [x, y] = pos;
+        let [x, y] = [x - w / 2. + scaled_w / 2., y];
+        let [w, h] = [scaled_w, h];
         Sprite {
-            pos: [x - w / 2. + scaled_w / 2., y],
-            size: [scaled_w, h],
+            corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
             tint: [b, b, b, 1.],
             atlas_uv: uv,
-            angle: 0.,
+        }
+    }
+
+    pub fn line(region: Region, a: [f32; 2], b: [f32; 2], thickness: f32, tint: [f32; 4]) -> Self {
+        let a = Vec2::new(a);
+        let d = Vec2::new(b) - a;
+        let ortho = vec2(d.0[1], -d.0[0]).norm_zero() * (thickness / 2.);
+        let tl = a + ortho;
+        let bl = a - ortho;
+        Sprite {
+            corners: [tl.0, bl.0, (bl + d).0, (tl + d).0],
+            tint,
+            atlas_uv: region.uv,
         }
     }
 }
@@ -248,8 +279,9 @@ impl<B: SupportedBackend> DrawContext<B> {
         let sampler = unsafe {
             use hal::image::{Filter, SamplerDesc, Usage, WrapMode};
 
+            // TODO: Choose between Linear and Nearest?
             device
-                .create_sampler(&SamplerDesc::new(Filter::Nearest, WrapMode::Tile))
+                .create_sampler(&SamplerDesc::new(Filter::Linear, WrapMode::Clamp))
                 .expect("TODO")
         };
 
@@ -354,6 +386,10 @@ impl<B: SupportedBackend> DrawContext<B> {
     pub fn scale_factor_changed(&mut self, scale_factor: f64, resolution: (u32, u32)) {
         self.scale_factor = scale_factor;
         self.resolution_changed(resolution);
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 
     pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
@@ -474,17 +510,17 @@ impl<B: SupportedBackend> DrawContext<B> {
         let mut renderer = Renderer {
             context: self,
             clear_color,
+            camera: [0., 0.],
             framebuffer_to_canvas,
             framebuffer_to_surface,
             sprites: vec![
                 Sprite {
-                    pos: [0., 0.],
-                    size: [0., 0.],
+                    corners: Default::default(),
                     tint: [0., 0., 0., 0.],
                     atlas_uv: ([0., 0.], [0., 0.]),
-                    angle: 0.,
                 }, // Note: Dummy sprite for fullscreen quad
             ],
+            over_sprites: vec![],
 
             #[cfg(feature = "font")]
             glyphs: vec![],
@@ -551,6 +587,7 @@ impl<B: SupportedBackend> Drop for DrawContext<B> {
 pub struct Renderer<'a, B: SupportedBackend> {
     context: &'a mut DrawContext<B>,
     clear_color: Color,
+    camera: [f32; 2],
     framebuffer_to_canvas: B::Framebuffer,
     framebuffer_to_surface: Option<(
         B::Framebuffer,
@@ -558,24 +595,56 @@ pub struct Renderer<'a, B: SupportedBackend> {
         Viewport,
     )>,
     sprites: Vec<Sprite>,
+    over_sprites: Vec<Sprite>,
 
     #[cfg(feature = "font")]
     glyphs: Vec<(Glyph, [f32; 4])>,
 }
 
 impl<'a, B: SupportedBackend> Renderer<'a, B> {
-    pub fn sprite(&mut self, sprite: Sprite) {
+    pub fn set_camera(&mut self, pos: [f32; 2]) {
+        self.camera = pos;
+    }
+
+    pub fn clear_camera(&mut self) {
+        self.camera = [0., 0.];
+    }
+
+    pub fn sprite(&mut self, mut sprite: Sprite) {
+        let [dx, dy] = self.camera;
+        for p in &mut sprite.corners {
+            p[0] -= dx;
+            p[1] -= dy;
+        }
         self.sprites.push(sprite);
+    }
+
+    pub fn over_sprite(&mut self, mut sprite: Sprite) {
+        let [dx, dy] = self.camera;
+        for p in &mut sprite.corners {
+            p[0] -= dx;
+            p[1] -= dy;
+        }
+        self.over_sprites.push(sprite);
     }
 
     // TODO: Can we maybe just _borrow_ Glyphs instead of
     // cloning them all the damn time?
     #[cfg(feature = "font")]
-    pub fn glyphs<I>(&mut self, glyphs: I, tint: [f32; 4])
+    pub fn glyphs<'g, I>(&mut self, glyphs: I, offset: [f32; 2], tint: [f32; 4])
     where
-        I: IntoIterator<Item = Glyph>,
+        I: IntoIterator<Item = &'g Glyph>,
     {
+        let sf = self.context.scale_factor as f32;
+
+        let [dx, dy] = (Vec2::new(offset) - Vec2::new(self.camera)).0;
+
         for glyph in glyphs {
+            let mut glyph = glyph.clone();
+            let mut point = glyph.glyph.position();
+            point.x += dx * sf;
+            point.y += dy * sf;
+            glyph.glyph.set_position(point);
             self.glyphs.push((glyph, tint));
         }
     }
@@ -583,32 +652,64 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
     #[cfg(feature = "font")]
     pub fn finish_with_text<A>(mut self, font_atlas: &mut A, atlas_image: Option<&mut RgbaImage>)
     where
-        A: Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage>,
+        A: Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion>,
     {
         for (glyph, _) in &self.glyphs {
             font_atlas.insert(glyph.clone());
         }
 
-        let replacement_image = {
-            let dest = atlas_image.unwrap_or(&mut self.context.texture_atlas);
-            let upload = font_atlas.modified() && font_atlas.compile_into(dest);
-            if upload {
-                Some(dest.clone())
-            } else {
-                None
+        let (upload, atlas_image) = if font_atlas.modified() {
+            match atlas_image {
+                Some(dest) => (font_atlas.compile_into(dest), Some(dest)),
+                None => (font_atlas.compile_into(&mut self.context.texture_atlas), None),
             }
+        } else {
+            (None, atlas_image)
         };
 
-        if let Some(atlas_image) = replacement_image {
-            self.update_atlas(atlas_image);
+        if let Some(atlas_image) = atlas_image {
+            self.context.texture_atlas = atlas_image.clone();
+        }
+
+        if let Some(region) = upload {
+            self.upload_atlas_partial(region);
         }
 
         for (glyph, tint) in self.glyphs.drain(..) {
             let glyph_region = font_atlas.fetch(&glyph);
             if let Some(glyph_region) = glyph_region {
-                let glyph_sprite = Sprite::glyph(glyph_region, tint);
+                let glyph_sprite = Sprite::glyph(glyph_region, tint, self.context.scale_factor);
                 self.sprites.push(glyph_sprite);
             }
+        }
+    }
+
+    fn upload_atlas_partial(&mut self, region: PixelRegion) {
+        let dimensions = self.context.texture_atlas.dimensions();
+
+        let Resources {
+            command_pool,
+            atlas_image,
+            ..
+        } = &mut *self.context.resources;
+
+        let row_size = dimensions.0 as usize * 4;
+        let row_range = region.upper_left[1] ..= region.lower_right[1];
+        let start_byte = *row_range.start() as usize * row_size;
+        let end_byte = (row_range.end() + 1) as usize * row_size;
+        let byte_range = start_byte .. end_byte;
+
+        unsafe {
+            gfx::upload_image_part::<B>(
+                &self.context.device,
+                &self.context.adapter.physical_device,
+                command_pool,
+                &mut self.context.queue_group.queues[0],
+                &atlas_image.1,
+                dimensions.0,
+                row_range,
+                &self.context.texture_atlas.as_ref()[byte_range],
+            );
         }
     }
 
@@ -669,6 +770,8 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             self.context.scale_factor,
         );
 
+        self.sprites.append(&mut self.over_sprites);
+
         // TODO: Dynamically grow vertex buffer?
         assert!(self.sprites.len() <= MAX_SPRITES);
 
@@ -680,18 +783,14 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
         let scale_x = (2.0 / canvas_width as f64) as f32;
         let scale_y = (2.0 / canvas_height as f64) as f32;
 
-        let project = |x, y, cx, cy, c, s| {
-            let (ox, oy) = (x - cx, y - cy);
-            let (x, y) = ((c * ox - s * oy) + cx, (s * ox + c * oy) + cy);
+        let project = |[x, y]: [f32; 2]| {
+            #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
             {
-                #[cfg(all(target_arch = "wasm32", feature = "bypass_spirv_cross"))]
-                {
-                    [(x * scale_x) - 1., -1. * ((y * scale_y) - 1.), 0.]
-                }
-                #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
-                {
-                    [(x * scale_x) - 1., (y * scale_y) - 1., 0.]
-                }
+                [(x * scale_x) - 1., -1. * ((y * scale_y) - 1.), 0.]
+            }
+            #[cfg(not(all(target_arch = "wasm32", feature = "bypass_spirv_cross")))]
+            {
+                [(x * scale_x) - 1., (y * scale_y) - 1., 0.]
             }
         };
 
@@ -701,28 +800,25 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             } else {
                 sprite.tint
             };
-            let [x, y] = sprite.pos;
-            let [w, h] = sprite.size;
-            let [cx, cy] = [x + w / 2., y + h / 2.];
+            let corners = sprite.corners;
             let ([u0, v0], [uw, vh]) = sprite.atlas_uv;
-            let (s, c) = sprite.angle.sin_cos();
             let p0 = Vertex {
-                offset: project(x, y, cx, cy, c, s),
+                offset: project(corners[0]),
                 tint: tint,
                 uv: [u0, v0],
             };
             let p1 = Vertex {
-                offset: project(x, y + h, cx, cy, c, s),
+                offset: project(corners[1]),
                 tint: tint,
                 uv: [u0, v0 + vh],
             };
             let p2 = Vertex {
-                offset: project(x + w, y + h, cx, cy, c, s),
+                offset: project(corners[2]),
                 tint: tint,
                 uv: [u0 + uw, v0 + vh],
             };
             let p3 = Vertex {
-                offset: project(x + w, y, cx, cy, c, s),
+                offset: project(corners[3]),
                 tint: tint,
                 uv: [u0 + uw, v0],
             };

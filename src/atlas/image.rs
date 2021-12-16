@@ -5,7 +5,7 @@ use std::hash::Hash;
 use image::RgbaImage;
 use texture_packer::{TexturePacker, TexturePackerConfig};
 
-use crate::{atlas::Atlas, draw::Region};
+use crate::{atlas::Atlas, draw::{PixelRegion, Region}};
 
 pub struct ImageAtlas<'a, K>
 where
@@ -33,6 +33,7 @@ where
             allow_rotation: false,
             border_padding: 2,
             texture_padding: 2,
+            texture_extrusion: 2,
             trim: false,
             ..Default::default()
         }
@@ -73,7 +74,7 @@ where
         let frame = packer.get_frame("").unwrap().frame;
 
         assert!(
-            frame.x == 0 && frame.y == 1,
+            frame.x == 0 && frame.y == 0,
             "Oops, that's not how I thought this worked"
         );
 
@@ -96,7 +97,7 @@ where
     }
 }
 
-impl<'a, K> Atlas<(K::Owned, RgbaImage), K, Region, RgbaImage> for ImageAtlas<'a, K>
+impl<'a, K> Atlas<(K::Owned, RgbaImage), K, Region, RgbaImage, PixelRegion> for ImageAtlas<'a, K>
 where
     K: ToOwned + Eq + Hash + ?Sized,
     K::Owned: Clone + Eq + Hash,
@@ -129,11 +130,18 @@ where
         self.regions[key]
     }
 
-    fn compile_into(&mut self, dest: &mut RgbaImage) -> bool {
+    fn compile_into(&mut self, dest: &mut RgbaImage) -> Option<PixelRegion> {
         use image::GenericImage;
+
+        let mut updated_min = None;
+        let mut updated_max = None;
 
         let ([ax, ay], _) = self.available_area;
         if let Some(pre_made_atlas) = &self.pre_made_atlas {
+            let dims = pre_made_atlas.dimensions();
+            updated_max = Some([ax + dims.0 - 1, ay + dims.1 - 1]);
+            updated_min = Some([ax, ay]);
+
             dest.copy_from(pre_made_atlas, ax, ay).unwrap();
         }
 
@@ -142,14 +150,32 @@ where
 
             // If there's no image, this region must be from the pre-made atlas
             if let Some(image) = image {
-                dest.copy_from(image, region.pixels.0[0], region.pixels.0[1])
+                use std::cmp::{min, max};
+
+                let dims = image.dimensions();
+                let image_min = region.pixels.0;
+                let image_max = [image_min[0] + dims.0 - 1, image_min[1] + dims.1 - 1];
+
+                let old_min = updated_min.unwrap_or(image_min);
+                let old_max = updated_max.unwrap_or(image_max);
+
+                updated_min = Some([min(image_min[0], old_min[0]), min(image_min[1], old_min[1])]);
+                updated_max = Some([max(image_max[0], old_max[0]), max(image_max[1], old_max[1])]);
+
+                dest.copy_from(image, image_min[0], image_min[1])
                     .unwrap();
             }
         }
 
         self.modified = false;
 
-        true
+        match (updated_min, updated_max) {
+            (Some(min), Some(max)) => Some(PixelRegion {
+                upper_left: min,
+                lower_right: max,
+            }),
+            _ => None,
+        }
     }
 
     fn modified(&self) -> bool {

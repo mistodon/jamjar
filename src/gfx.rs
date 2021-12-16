@@ -161,32 +161,38 @@ pub unsafe fn make_image<B: Backend>(
     (image_memory, image, image_view)
 }
 
-pub unsafe fn upload_image<B: Backend>(
+pub(crate) unsafe fn upload_image_part<B: Backend>(
     device: &B::Device,
     physical_device: &B::PhysicalDevice,
     command_pool: &mut B::CommandPool,
     queue: &mut B::CommandQueue,
     image_resource: &B::Image,
-    image_size: (u32, u32),
-    image_bytes: &[u8],
+    image_width: u32,
+    row_range: std::ops::RangeInclusive<u32>,
+    row_bytes: &[u8],
 ) {
     use gfx_hal::format::Aspects;
     use gfx_hal::image::SubresourceRange;
     use gfx_hal::memory::{Properties, Segment};
 
-    let (image_width, image_height) = image_size;
-
     let mut texture_fence = device.create_fence(false).expect("TODO");
+
+    fn pad_to_align(n: u64, align: u64) -> u64 {
+        debug_assert!(align.is_power_of_two(), "Cannot align to non-power-of-two value.");
+        let mask = align - 1;
+        (n + mask) & !mask
+    }
+
+    let row_count = row_range.end() - row_range.start() + 1;
 
     let limits = physical_device.limits();
     let non_coherent_alignment = limits.non_coherent_atom_size as u64;
-    let row_alignment_mask = limits.optimal_buffer_copy_pitch_alignment as u32 - 1;
+    let row_alignment = limits.optimal_buffer_copy_pitch_alignment;
 
-    let image_stride = 4usize;
-    let row_pitch = (image_width * image_stride as u32 + row_alignment_mask) & !row_alignment_mask;
-    let upload_size = (image_height * row_pitch) as u64;
-    let padded_upload_size = ((upload_size + non_coherent_alignment - 1) / non_coherent_alignment)
-        * non_coherent_alignment;
+    let pixel_size = 4usize;
+    let row_size = pad_to_align(image_width as u64 * pixel_size as u64, row_alignment) as u32;
+    let upload_size = (row_count * row_size) as u64;
+    let padded_upload_size = pad_to_align(upload_size, non_coherent_alignment);
 
     let (mut buffer_memory, buffer) = make_buffer::<B>(
         device,
@@ -200,13 +206,13 @@ pub unsafe fn upload_image<B: Backend>(
         .map_memory(&mut buffer_memory, Segment::ALL)
         .expect("TODO");
 
-    for y in 0..image_height as usize {
-        let row = &(*image_bytes)[y * (image_width as usize) * image_stride
-            ..(y + 1) * (image_width as usize) * image_stride];
+    for y in 0..row_count as usize {
+        let row = &(*row_bytes)[y * (image_width as usize) * pixel_size
+            ..(y + 1) * (image_width as usize) * pixel_size];
         std::ptr::copy_nonoverlapping(
             row.as_ptr(),
-            mapped_memory.offset(y as isize * row_pitch as isize),
-            image_width as usize * image_stride,
+            mapped_memory.offset(y as isize * row_size as isize),
+            image_width as usize * pixel_size,
         );
     }
 
@@ -250,7 +256,155 @@ pub unsafe fn upload_image<B: Backend>(
             Layout::TransferDstOptimal,
             over([BufferImageCopy {
                 buffer_offset: 0,
-                buffer_width: row_pitch / (image_stride as u32),
+                buffer_width: row_size / (pixel_size as u32),
+                buffer_height: row_count as u32,
+                image_layers: SubresourceLayers {
+                    aspects: Aspects::COLOR,
+                    level: 0,
+                    layers: 0..1,
+                },
+                image_offset: Offset { x: 0, y: *row_range.start() as i32, z: 0 },
+                image_extent: Extent {
+                    width: image_width,
+                    height: row_count,
+                    depth: 1,
+                },
+            }]),
+        );
+
+        let image_barrier = Barrier::Image {
+            states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
+                ..(Access::SHADER_READ, Layout::ShaderReadOnlyOptimal),
+            target: image_resource,
+            families: None,
+            range: SubresourceRange {
+                aspects: Aspects::COLOR,
+                ..Default::default()
+            },
+        };
+
+        command_buffer.pipeline_barrier(
+            PipelineStage::TRANSFER..PipelineStage::FRAGMENT_SHADER,
+            Dependencies::empty(),
+            over([image_barrier]),
+        );
+
+        command_buffer.finish();
+        command_buffer
+    };
+
+    queue.submit(
+        over([&command_buffer]),
+        over([]),
+        over([]),
+        Some(&mut texture_fence),
+    );
+
+    // TODO: Don't wait forever
+    device.wait_for_fence(&texture_fence, !0).expect("TODO");
+
+    // Cleanup staging resources
+    device.destroy_buffer(buffer);
+    device.free_memory(buffer_memory);
+    device.destroy_fence(texture_fence);
+}
+
+// TODO: Add upload that uploads a subset of rows!
+pub unsafe fn upload_image<B: Backend>(
+    device: &B::Device,
+    physical_device: &B::PhysicalDevice,
+    command_pool: &mut B::CommandPool,
+    queue: &mut B::CommandQueue,
+    image_resource: &B::Image,
+    image_size: (u32, u32),
+    image_bytes: &[u8],
+) {
+    use gfx_hal::format::Aspects;
+    use gfx_hal::image::SubresourceRange;
+    use gfx_hal::memory::{Properties, Segment};
+
+    let (image_width, image_height) = image_size;
+
+    let mut texture_fence = device.create_fence(false).expect("TODO");
+
+    fn pad_to_align(n: u64, align: u64) -> u64 {
+        debug_assert!(align.is_power_of_two(), "Cannot align to non-power-of-two value.");
+        let mask = align - 1;
+        (n + mask) & !mask
+    }
+
+    let limits = physical_device.limits();
+    let non_coherent_alignment = limits.non_coherent_atom_size as u64;
+    let row_alignment = limits.optimal_buffer_copy_pitch_alignment;
+
+    let pixel_size = 4usize;
+    let row_size = pad_to_align(image_width as u64 * pixel_size as u64, row_alignment) as u32;
+    let upload_size = (image_height * row_size) as u64;
+    let padded_upload_size = pad_to_align(upload_size, non_coherent_alignment);
+
+    let (mut buffer_memory, buffer) = make_buffer::<B>(
+        device,
+        physical_device,
+        padded_upload_size as usize,
+        gfx_hal::buffer::Usage::TRANSFER_SRC,
+        Properties::CPU_VISIBLE,
+    );
+
+    let mapped_memory = device
+        .map_memory(&mut buffer_memory, Segment::ALL)
+        .expect("TODO");
+
+    for y in 0..image_height as usize {
+        let row = &(*image_bytes)[y * (image_width as usize) * pixel_size
+            ..(y + 1) * (image_width as usize) * pixel_size];
+        std::ptr::copy_nonoverlapping(
+            row.as_ptr(),
+            mapped_memory.offset(y as isize * row_size as isize),
+            image_width as usize * pixel_size,
+        );
+    }
+
+    device
+        .flush_mapped_memory_ranges(over([(&buffer_memory, Segment::ALL)]))
+        .expect("TODO");
+
+    device.unmap_memory(&mut buffer_memory);
+
+    // TODO: Commands to transfer data
+    let command_buffer = {
+        use gfx_hal::command::{BufferImageCopy, CommandBufferFlags, Level};
+        use gfx_hal::image::{Access, Extent, Layout, Offset, SubresourceLayers};
+        use gfx_hal::memory::{Barrier, Dependencies};
+        use gfx_hal::pso::PipelineStage;
+
+        let mut command_buffer = command_pool.allocate_one(Level::Primary);
+
+        command_buffer.begin_primary(CommandBufferFlags::ONE_TIME_SUBMIT);
+
+        let image_barrier = Barrier::Image {
+            states: (Access::empty(), Layout::Undefined)
+                ..(Access::TRANSFER_WRITE, Layout::TransferDstOptimal),
+            target: image_resource,
+            families: None,
+            range: SubresourceRange {
+                aspects: Aspects::COLOR,
+                ..Default::default()
+            },
+        };
+
+        command_buffer.pipeline_barrier(
+            PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
+            Dependencies::empty(),
+            over([image_barrier]),
+        );
+
+        command_buffer.copy_buffer_to_image(
+            &buffer,
+            image_resource,
+            Layout::TransferDstOptimal,
+            over([BufferImageCopy {
+                buffer_offset: 0,
+                buffer_width: row_size / (pixel_size as u32),
                 buffer_height: image_height as u32,
                 image_layers: SubresourceLayers {
                     aspects: Aspects::COLOR,

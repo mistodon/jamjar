@@ -1,8 +1,6 @@
 ## Now:
-- [ ] Atlas stuff
-    - [ ] Reposition glyphs at draw-time
-    - [ ] Layout text in font module
-    - [ ] Layout text with optional word-wrapping
+- [ ] Layout text with optional word-wrapping
+- [ ] Linear/Nearest filtering
 
 ## Later:
 Libs:
@@ -12,6 +10,11 @@ Libs:
 - [ ] Ignore unused imports in generated edres files
 - [ ] Proper CI
 - [ ] Can't have different features based on target, so find a better way to do the force-static etc.
+- [ ] Drawing improvements:
+    - [ ] Font layout fns return an end point for size calc, continuing
+    - [ ] Make all drawing fns take Into<[f32; 2]> for pos
+    - [ ] Add a font Cursor(pos, Option<last_char>)
+    - [ ] Cursor stack (2D position with push/pop history)
 
 CLI:
 - [ ] Package README etc with app

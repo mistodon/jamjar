@@ -51,6 +51,10 @@ impl<T> Timestamp<T> {
     pub fn plus(self, amount: f64) -> Self {
         Timestamp(self.0 + amount, self.1)
     }
+
+    pub fn since(&self, other: Timestamp<T>) -> f64 {
+        self.0 - other.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

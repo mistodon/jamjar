@@ -29,7 +29,7 @@ fn main() {
         .unwrap()
         .to_rgba8();
 
-    let font = Font::new(jamjar::resource!("assets/fonts/chocolate_11.ttf").to_vec());
+    let font = Font::new(jamjar::resource!("assets/fonts/chocolate_11.ttf").to_vec(), 11.);
 
     let mut atlas_image = image::RgbaImage::new(4096, 4096);
     let mut atlas = FontImageAtlas::new([4096, 4096], 1024);
@@ -110,6 +110,7 @@ fn main() {
             Event::RedrawRequested(_) => {
                 let t = (clock.secs() % 8.) as f32 / 8.;
 
+                let sf = context.scale_factor();
                 let mut ren = context.start_rendering([0.2, 0., 0.4, 1.]);
 
                 for i in 0..8 {
@@ -161,8 +162,8 @@ fn main() {
                     [3., 3.],
                 ));
 
-                let glyph = font.test_glyph('H', [100., 100.]);
-                ren.glyphs(vec![glyph], [1., 0., 1., 1.]);
+                let glyphs = font.layout_line("Hello, world!", [160., 100.], 11., sf);
+                ren.glyphs(&glyphs, [0., 0.], [1., 0., 1., 1.]);
                 ren.finish_with_text(&mut atlas.fonts, None);
             }
             _ => (),
