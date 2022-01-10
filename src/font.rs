@@ -128,7 +128,7 @@ impl Font {
                     y: cursor.pos[1] * sf,
                 });
                 cursor.prev_glyph = Some((self.font_id, next.id()));
-                cursor.pos[0] += w / 2.;
+                cursor.pos[0] += w / sf;
                 Glyph {
                     font_id: self.font_id,
                     glyph: next,
