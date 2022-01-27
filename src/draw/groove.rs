@@ -5,7 +5,7 @@ use std::mem::ManuallyDrop;
 use image::RgbaImage;
 
 use crate::{
-    draw::{CanvasConfig, CanvasMode, GlyphRegion, PixelRegion, Region},
+    draw::{CanvasConfig, CanvasMode, Depth, GlyphRegion, PixelRegion, Region},
     gfx::{self, easy, prelude::*, SupportedBackend},
     math::*,
     utils::over,
@@ -33,11 +33,12 @@ const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
     include_bytes!("../../assets/shaders/compiled/groove.es.frag"),
 );
 
-pub const MAX_SPRITES: usize = 10000;
+pub const MAX_SPRITES: usize = 30000;
 const VERTEX_BUFFER_LEN: usize = MAX_SPRITES * 6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sprite {
+    pub depth: Depth,
     pub corners: [[f32; 2]; 4],
     pub tint: [f32; 4],
     pub atlas_uv: ([f32; 2], [f32; 2]),
@@ -52,22 +53,23 @@ impl Sprite {
         Self::scaled(region, pos, tint, [1., 1.])
     }
 
-    pub fn sized(region: Region, pos: [f32; 2], tint: [f32; 4], size: [f32; 2]) -> Self {
-        let [x, y] = pos;
-        let [w, h] = size;
-
-        Sprite {
-            corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
-            tint,
-            atlas_uv: region.uv,
-        }
-    }
-
     pub fn scaled(region: Region, pos: [f32; 2], tint: [f32; 4], scale: [f32; 2]) -> Self {
         let (_, size) = region.pixels;
         let size = Vec2::new(scale) * Vec2::new(size).as_f32();
 
         Self::sized(region, pos, tint, size.0)
+    }
+
+    pub fn sized(region: Region, pos: [f32; 2], tint: [f32; 4], size: [f32; 2]) -> Self {
+        let [x, y] = pos;
+        let [w, h] = size;
+
+        Sprite {
+            depth: Depth(0.),
+            corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
+            tint,
+            atlas_uv: region.uv,
+        }
     }
 
     pub fn rotated(
@@ -85,6 +87,7 @@ impl Sprite {
         let rot = Mat2::new([[c, -s], [s, c]]);
 
         Sprite {
+            depth: Depth(0.),
             corners: [
                 (rot * (center - extent)).0,
                 (rot * (center - ortho)).0,
@@ -103,12 +106,14 @@ impl Sprite {
         let [x, y] = pos.0;
         let [w, h] = size.0;
         Sprite {
+            depth: Depth(0.),
             corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
             tint,
             atlas_uv: region.uv,
         }
     }
 
+    // Legacy - for Groove Arc
     pub fn gauge(region: Region, pos: [f32; 2], proportion: f32, brightness: f32) -> Self {
         let [w, h] = Vec2::new(region.pixels.1).as_f32().0;
 
@@ -121,6 +126,7 @@ impl Sprite {
         let [x, y] = [x - w / 2. + scaled_w / 2., y];
         let [w, h] = [scaled_w, h];
         Sprite {
+            depth: Depth(0.),
             corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
             tint: [b, b, b, 1.],
             atlas_uv: uv,
@@ -134,6 +140,7 @@ impl Sprite {
         let tl = a + ortho;
         let bl = a - ortho;
         Sprite {
+            depth: Depth(0.),
             corners: [tl.0, bl.0, (bl + d).0, (tl + d).0],
             tint,
             atlas_uv: region.uv,
@@ -207,6 +214,7 @@ impl<B: SupportedBackend> DrawContext<B> {
         window: &Window,
         canvas_config: CanvasConfig,
         texture_atlas: RgbaImage,
+        linear_filter: bool,
     ) -> Result<Self, ()> {
         let (
             instance,
@@ -279,9 +287,13 @@ impl<B: SupportedBackend> DrawContext<B> {
         let sampler = unsafe {
             use hal::image::{Filter, SamplerDesc, Usage, WrapMode};
 
-            // TODO: Choose between Linear and Nearest?
+            let filter = match linear_filter {
+                true => Filter::Linear,
+                false => Filter::Nearest,
+            };
+
             device
-                .create_sampler(&SamplerDesc::new(Filter::Linear, WrapMode::Clamp))
+                .create_sampler(&SamplerDesc::new(filter, WrapMode::Clamp))
                 .expect("TODO")
         };
 
@@ -394,6 +406,24 @@ impl<B: SupportedBackend> DrawContext<B> {
 
     pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
         self.canvas_config = canvas_config;
+    }
+
+    pub fn window_to_canvas_pos(&self, window_pos: [f64; 2]) -> Option<[f32; 2]> {
+        let canvas_properties = self.canvas_config.canvas_properties(
+            [self.surface_extent.width, self.surface_extent.height],
+            self.scale_factor,
+        );
+
+        let [x, y] = window_pos;
+        let [cw, ch] = canvas_properties.logical_canvas_size;
+        let ([ox, oy], [w, h]) = canvas_properties.viewport_scissor_rect;
+        let (ox, oy, w, h) = (ox as f64, oy as f64, w as f64, h as f64);
+
+        let pos = [
+            (((x - ox) / w) * cw as f64) as f32,
+            (((y - oy) / h) * ch as f64) as f32,
+        ];
+        (pos[0] >= 0. && pos[0] <= cw as f32 && pos[1] >= 0. && pos[1] <= ch as f32).then(|| pos)
     }
 
     pub fn start_rendering(&mut self, clear_color: Color) -> Renderer<B> {
@@ -511,16 +541,17 @@ impl<B: SupportedBackend> DrawContext<B> {
             context: self,
             clear_color,
             camera: [0., 0.],
+            camera_depth: Depth(0.),
             framebuffer_to_canvas,
             framebuffer_to_surface,
             sprites: vec![
                 Sprite {
+                    depth: Depth(0.),
                     corners: Default::default(),
                     tint: [0., 0., 0., 0.],
                     atlas_uv: ([0., 0.], [0., 0.]),
                 }, // Note: Dummy sprite for fullscreen quad
             ],
-            over_sprites: vec![],
 
             #[cfg(feature = "font")]
             glyphs: vec![],
@@ -588,6 +619,7 @@ pub struct Renderer<'a, B: SupportedBackend> {
     context: &'a mut DrawContext<B>,
     clear_color: Color,
     camera: [f32; 2],
+    camera_depth: Depth,
     framebuffer_to_canvas: B::Framebuffer,
     framebuffer_to_surface: Option<(
         B::Framebuffer,
@@ -595,7 +627,6 @@ pub struct Renderer<'a, B: SupportedBackend> {
         Viewport,
     )>,
     sprites: Vec<Sprite>,
-    over_sprites: Vec<Sprite>,
 
     #[cfg(feature = "font")]
     glyphs: Vec<(Glyph, [f32; 4])>,
@@ -610,22 +641,26 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
         self.camera = [0., 0.];
     }
 
+    pub fn set_depth(&mut self, depth: Depth) {
+        self.camera_depth = depth;
+    }
+
+    pub fn clear_depth(&mut self) {
+        self.camera_depth = Depth(0.);
+    }
+
+    pub fn add_depth(&mut self, amount: Depth) {
+        self.camera_depth = self.camera_depth + amount;
+    }
+
     pub fn sprite(&mut self, mut sprite: Sprite) {
         let [dx, dy] = self.camera;
         for p in &mut sprite.corners {
             p[0] -= dx;
             p[1] -= dy;
         }
+        sprite.depth = sprite.depth + self.camera_depth;
         self.sprites.push(sprite);
-    }
-
-    pub fn over_sprite(&mut self, mut sprite: Sprite) {
-        let [dx, dy] = self.camera;
-        for p in &mut sprite.corners {
-            p[0] -= dx;
-            p[1] -= dy;
-        }
-        self.over_sprites.push(sprite);
     }
 
     // TODO: Can we maybe just _borrow_ Glyphs instead of
@@ -661,7 +696,10 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
         let (upload, atlas_image) = if font_atlas.modified() {
             match atlas_image {
                 Some(dest) => (font_atlas.compile_into(dest), Some(dest)),
-                None => (font_atlas.compile_into(&mut self.context.texture_atlas), None),
+                None => (
+                    font_atlas.compile_into(&mut self.context.texture_atlas),
+                    None,
+                ),
             }
         } else {
             (None, atlas_image)
@@ -694,10 +732,10 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
         } = &mut *self.context.resources;
 
         let row_size = dimensions.0 as usize * 4;
-        let row_range = region.upper_left[1] ..= region.lower_right[1];
+        let row_range = region.upper_left[1]..=region.lower_right[1];
         let start_byte = *row_range.start() as usize * row_size;
         let end_byte = (row_range.end() + 1) as usize * row_size;
-        let byte_range = start_byte .. end_byte;
+        let byte_range = start_byte..end_byte;
 
         unsafe {
             gfx::upload_image_part::<B>(
@@ -770,10 +808,8 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             self.context.scale_factor,
         );
 
-        self.sprites.append(&mut self.over_sprites);
-
         // TODO: Dynamically grow vertex buffer?
-        assert!(self.sprites.len() <= MAX_SPRITES);
+        assert!(self.sprites.len() <= MAX_SPRITES, "Too many sprites being rendered - currently jamjar cannot dynamically grow the sprite buffer.");
 
         let verts = &mut self.context.vertex_cache;
         verts.clear(); // TODO: Maybe actually cache?
@@ -793,6 +829,9 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                 [(x * scale_x) - 1., (y * scale_y) - 1., 0.]
             }
         };
+
+        self.sprites
+            .sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap());
 
         for sprite in &self.sprites {
             let tint = if is_srgb(self.context.surface_color_format) {
@@ -1095,6 +1134,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                 }
 
                 self.context.device.destroy_framebuffer(framebuffer);
+                // NOTE: Umm... I don't know why the next line is commented out...
                 // self.context.device.destroy_framebuffer(framebuffer_to_canvas);
             }
         }

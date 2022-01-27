@@ -1,6 +1,6 @@
 ## Now:
+- [ ] pub fns to map real window coord to canvas coord and vice-versa
 - [ ] Layout text with optional word-wrapping
-- [ ] Linear/Nearest filtering
 
 ## Later:
 Libs:

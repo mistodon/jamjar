@@ -108,5 +108,7 @@ impl<T> Clock<T> {
     }
 }
 
+pub type LogicClock = Clock<LogicTime>;
+pub type LogicTimestamp = Timestamp<LogicTime>;
 pub type RealClock = Clock<RealTime>;
 pub type RealTimestamp = Timestamp<RealTime>;

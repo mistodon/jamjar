@@ -1,7 +1,11 @@
 use image::RgbaImage;
 use rusttype::gpu_cache::Cache;
 
-use crate::{atlas::Atlas, draw::{GlyphRegion, PixelRegion}, font::Glyph};
+use crate::{
+    atlas::Atlas,
+    draw::{GlyphRegion, PixelRegion},
+    font::Glyph,
+};
 
 pub struct FontAtlas {
     glyph_cache: Cache<'static>,
@@ -99,8 +103,8 @@ impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion> for FontAt
 
         self.glyph_cache
             .cache_queued(|dest_rect, data| {
-                use std::cmp::{min, max};
                 use rusttype::Point;
+                use std::cmp::{max, min};
 
                 let Point { x, y } = dest_rect.min;
                 let w = dest_rect.width();

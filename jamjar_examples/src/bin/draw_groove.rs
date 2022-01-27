@@ -29,7 +29,10 @@ fn main() {
         .unwrap()
         .to_rgba8();
 
-    let font = Font::new(jamjar::resource!("assets/fonts/chocolate_11.ttf").to_vec(), 11.);
+    let font = Font::new(
+        jamjar::resource!("assets/fonts/chocolate_11.ttf").to_vec(),
+        11.,
+    );
 
     let mut atlas_image = image::RgbaImage::new(4096, 4096);
     let mut atlas = FontImageAtlas::new([4096, 4096], 1024);
@@ -39,7 +42,8 @@ fn main() {
 
     let mut canvas_config = CanvasConfig::pixel_scaled(resolution);
     let mut context =
-        DrawContext::<backend::Whatever>::new(&window, canvas_config, atlas_image.clone()).unwrap();
+        DrawContext::<backend::Whatever>::new(&window, canvas_config, atlas_image.clone(), false)
+            .unwrap();
 
     let mut clock = jamjar::timing::RealClock::new_now();
 

@@ -5,7 +5,10 @@ use std::hash::Hash;
 use image::RgbaImage;
 use texture_packer::{TexturePacker, TexturePackerConfig};
 
-use crate::{atlas::Atlas, draw::{PixelRegion, Region}};
+use crate::{
+    atlas::Atlas,
+    draw::{PixelRegion, Region},
+};
 
 pub struct ImageAtlas<'a, K>
 where
@@ -150,7 +153,7 @@ where
 
             // If there's no image, this region must be from the pre-made atlas
             if let Some(image) = image {
-                use std::cmp::{min, max};
+                use std::cmp::{max, min};
 
                 let dims = image.dimensions();
                 let image_min = region.pixels.0;
@@ -162,8 +165,7 @@ where
                 updated_min = Some([min(image_min[0], old_min[0]), min(image_min[1], old_min[1])]);
                 updated_max = Some([max(image_max[0], old_max[0]), max(image_max[1], old_max[1])]);
 
-                dest.copy_from(image, image_min[0], image_min[1])
-                    .unwrap();
+                dest.copy_from(image, image_min[0], image_min[1]).unwrap();
             }
         }
 

@@ -36,6 +36,35 @@ pub struct GlyphRegion {
     pub uv: ([f32; 2], [f32; 2]),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Depth(pub f32);
+
+pub const D: Depth = Depth(1.);
+
+impl std::ops::Add<Depth> for Depth {
+    type Output = Depth;
+
+    fn add(self, other: Depth) -> Self::Output {
+        Depth(self.0 + other.0)
+    }
+}
+
+impl std::ops::Mul<Depth> for f32 {
+    type Output = Depth;
+
+    fn mul(self, other: Depth) -> Self::Output {
+        Depth(self * other.0)
+    }
+}
+
+impl std::ops::Mul<Depth> for usize {
+    type Output = Depth;
+
+    fn mul(self, other: Depth) -> Self::Output {
+        Depth(self as f32 * other.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CanvasMode {
     Direct,

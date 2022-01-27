@@ -1,6 +1,9 @@
 #[cfg(feature = "codegen")]
 pub mod codegen;
 
+#[cfg(feature = "timing")]
+pub mod anim;
+
 pub mod atlas;
 
 #[cfg(feature = "audio")]
@@ -17,6 +20,8 @@ pub mod gfx;
 #[cfg(feature = "input")]
 pub mod input;
 
+pub mod layout;
+
 #[cfg(feature = "logging")]
 pub mod logging;
 
@@ -24,6 +29,8 @@ pub mod liveloop;
 
 #[cfg(feature = "math")]
 pub mod math;
+
+pub mod menus;
 
 #[cfg(feature = "reloading")]
 pub mod reloading;

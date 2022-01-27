@@ -3,7 +3,7 @@ name = "jamjar"
 version = "0.2.0"
 authors = ["Vi <violet@hey.com>"]
 description = "A collection of useful crates and utilities for quickly bootstrapping games for game jams."
-edition = "2018"
+edition = "2021"
 
 [features]
 default = ["everything"]

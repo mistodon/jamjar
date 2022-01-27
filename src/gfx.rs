@@ -178,7 +178,10 @@ pub(crate) unsafe fn upload_image_part<B: Backend>(
     let mut texture_fence = device.create_fence(false).expect("TODO");
 
     fn pad_to_align(n: u64, align: u64) -> u64 {
-        debug_assert!(align.is_power_of_two(), "Cannot align to non-power-of-two value.");
+        debug_assert!(
+            align.is_power_of_two(),
+            "Cannot align to non-power-of-two value."
+        );
         let mask = align - 1;
         (n + mask) & !mask
     }
@@ -263,7 +266,11 @@ pub(crate) unsafe fn upload_image_part<B: Backend>(
                     level: 0,
                     layers: 0..1,
                 },
-                image_offset: Offset { x: 0, y: *row_range.start() as i32, z: 0 },
+                image_offset: Offset {
+                    x: 0,
+                    y: *row_range.start() as i32,
+                    z: 0,
+                },
                 image_extent: Extent {
                     width: image_width,
                     height: row_count,
@@ -328,7 +335,10 @@ pub unsafe fn upload_image<B: Backend>(
     let mut texture_fence = device.create_fence(false).expect("TODO");
 
     fn pad_to_align(n: u64, align: u64) -> u64 {
-        debug_assert!(align.is_power_of_two(), "Cannot align to non-power-of-two value.");
+        debug_assert!(
+            align.is_power_of_two(),
+            "Cannot align to non-power-of-two value."
+        );
         let mask = align - 1;
         (n + mask) & !mask
     }
