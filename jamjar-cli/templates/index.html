@@ -8,7 +8,14 @@
             margin: 0px;
             padding: 0px;
         }
+        canvas {
+            margin: 0 auto;
+        }
+        {{ inline_css }}
     </style>
+    <script type="text/javascript">
+        {{ inline_js }}
+    </script>
   </head>
   <body>
     <script type="module">
@@ -16,6 +23,8 @@
 
       window.addEventListener("load", () => {
         init('./{{ bin_name }}_bg.wasm');
+
+        {{ onload_js }}
       });
     </script>
   </body>

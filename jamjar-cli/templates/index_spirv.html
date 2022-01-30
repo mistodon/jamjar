@@ -8,7 +8,14 @@
             margin: 0px;
             padding: 0px;
         }
+        canvas {
+            margin: 0 auto;
+        }
+        {{ inline_css }}
     </style>
+    <script type="text/javascript">
+        {{ inline_js }}
+    </script>
   </head>
   <body>
     <script src="./spirv_cross_wrapper_glsl.js"></script>
@@ -19,6 +26,8 @@
         const module = window.sc_internal_wrapper().then(module => {
           window.sc_internal = module;
           init('./{{ bin_name }}_bg.wasm');
+
+          {{ onload_js }}
         });
       });
     </script>

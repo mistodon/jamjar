@@ -69,6 +69,7 @@ pub struct WebBuildConfig {
     pub app_name: Option<String>,
     pub bin_name: Option<String>,
     pub output_dir: PathBuf,
+    pub web_includes: PathBuf,
     pub features: Vec<String>,
     pub bypass_spirv_cross: bool,
     pub debug: bool,
@@ -439,6 +440,9 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         struct IndexHtml<'a> {
             app_name: &'a str,
             bin_name: &'a str,
+            inline_js: &'a str,
+            inline_css: &'a str,
+            onload_js: &'a str,
         }
 
         let no_spirv_template =
@@ -453,9 +457,28 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             spirv_template
         };
 
+        let (inline_js, inline_css, onload_js) = {
+            let path = config.web_includes.clone();
+            let mut inline_js_path = path.clone();
+            inline_js_path.push("inline.js");
+            let mut inline_css_path = path.clone();
+            inline_css_path.push("inline.css");
+            let mut onload_js_path = path.clone();
+            onload_js_path.push("onload.js");
+
+            let inline_js = std::fs::read_to_string(&inline_js_path).unwrap_or_else(|_| String::new());
+            let inline_css = std::fs::read_to_string(&inline_css_path).unwrap_or_else(|_| String::new());
+            let onload_js = std::fs::read_to_string(&onload_js_path).unwrap_or_else(|_| String::new());
+
+            (inline_js, inline_css, onload_js)
+        };
+
         let context = IndexHtml {
             app_name: &app_name,
             bin_name: &final_bin_name,
+            inline_js: &inline_js,
+            inline_css: &inline_css,
+            onload_js: &onload_js,
         };
 
         let hb = Handlebars::new();

@@ -58,6 +58,9 @@ struct WebBuildCmd {
     #[structopt(long = "features")]
     features: Vec<String>,
 
+    #[structopt(long = "web-includes", short = "w", default_value = "./web")]
+    web_includes: PathBuf,
+
     /// Use this flag to skip packaging spirv_cross scripts.
     #[structopt(long)]
     bypass_spirv_cross: bool,
@@ -117,6 +120,7 @@ fn web_build(web_build_cmd: WebBuildCmd) {
         bin_name,
         output_dir,
         features,
+        web_includes,
         bypass_spirv_cross,
         debug,
     } = web_build_cmd;
@@ -127,6 +131,7 @@ fn web_build(web_build_cmd: WebBuildCmd) {
         bin_name,
         output_dir,
         features,
+        web_includes,
         bypass_spirv_cross,
         debug,
     };
