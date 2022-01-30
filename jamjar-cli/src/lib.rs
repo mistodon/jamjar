@@ -481,7 +481,9 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             onload_js: &onload_js,
         };
 
-        let hb = Handlebars::new();
+        let mut hb = Handlebars::new();
+        hb.register_escape_fn(handlebars::no_escape);
+
         let html = hb
             .render_template(&template, &context)
             .map_err(|e| JamjarError::TemplateError { cause: e })?;

@@ -20,14 +20,14 @@
   <body>
     <script src="./spirv_cross_wrapper_glsl.js"></script>
     <script type="module">
-      import init from './{{ bin_name }}.js';
+      import * as {{ bin_name }} from './{{ bin_name }}.js';
 
       window.addEventListener("load", () => {
         const module = window.sc_internal_wrapper().then(module => {
           window.sc_internal = module;
-          init('./{{ bin_name }}_bg.wasm');
-
-          {{ onload_js }}
+          {{ bin_name }}.default('./{{ bin_name }}_bg.wasm').then(null, () => {
+            {{ onload_js }}
+          });
         });
       });
     </script>

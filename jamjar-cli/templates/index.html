@@ -19,12 +19,12 @@
   </head>
   <body>
     <script type="module">
-      import init from './{{ bin_name }}.js';
+      import * as {{ bin_name }} from './{{ bin_name }}.js';
 
       window.addEventListener("load", () => {
-        init('./{{ bin_name }}_bg.wasm');
-
-        {{ onload_js }}
+        {{ bin_name }}.default('./{{ bin_name }}_bg.wasm').then(null, () => {
+          {{ onload_js }}
+        });
       });
     </script>
   </body>
