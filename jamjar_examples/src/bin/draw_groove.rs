@@ -7,10 +7,11 @@ pub fn wasm_main() {
 fn main() {
     use jamjar::{
         atlas::{Atlas, FontImageAtlas},
+        color,
         draw::{
             backend,
             groove::{DrawContext, Sprite},
-            CanvasConfig, CanvasMode,
+            CanvasConfig, CanvasMode, D,
         },
         font::Font,
         windowing,
@@ -46,6 +47,7 @@ fn main() {
             .unwrap();
 
     let mut clock = jamjar::timing::RealClock::new_now();
+    let mut text_start = clock.now();
 
     jamjar::jprintln!(
         r#"Press:
@@ -168,6 +170,31 @@ fn main() {
 
                 let glyphs = font.layout_line("Hello, world!", [160., 100.], 11., sf);
                 ren.glyphs(&glyphs, [0., 0.], [1., 0., 1., 1.]);
+
+                let glyphs = font.layout_wrapped("An-absurdly-very-long-first-line but the rest of this thing should wrap.\n\nIncluding manual newlines.",
+                    [160., 111.], 11., sf, 260.);
+                ren.glyphs(&glyphs, [0., 0.], [1., 1., 0., 1.]);
+
+                let cost_fn = |ch| match ch {
+                    '.' => 0.5,
+                    _ => 0.1,
+                };
+
+                let glyphs = font.layout_wrapped("This. Is. Stuttering... Text.", [4., 220.], 11., sf, 120.);
+                let (_, typed) = ren.glyphs_partial(&glyphs, [0., 0.], color::CYAN, 0*D, clock.since(text_start) as f32, cost_fn);
+
+                let (cur, part_1) = font.layout_wrapped_cur("This. Is. ", [128., 220.], 11., sf, 240.);
+                let (cur, part_2) = font.layout_wrapped_cur("Multicolor...", cur, 11., sf, 240.);
+                let (_, part_3) = font.layout_wrapped_cur("Text...", cur, 11., sf, 240.);
+
+                let (budget, _) = ren.glyphs_partial(&part_1, [0., 0.], color::WHITE, 0*D, clock.since(text_start) as f32, cost_fn);
+                let (budget, _) = ren.glyphs_partial(&part_2, [0., 0.], color::GREEN, 0*D, budget, cost_fn);
+                let (_, multi_typed) = ren.glyphs_partial(&part_3, [0., 0.], color::CYAN, 0*D, budget, cost_fn);
+
+                if typed.is_none() && multi_typed.is_none() {
+                    text_start = clock.now();
+                }
+
                 ren.finish_with_text(&mut atlas.fonts, None);
             }
             _ => (),

@@ -2,7 +2,22 @@
 name = "jamjar-examples"
 version = "0.1.0"
 authors = ["Vi <violet@hey.com>"]
-edition = "2018"
+edition = "2021"
+
+[profile.dev.package.cpal]
+opt-level = 3
+
+[profile.dev.package.rodio]
+opt-level = 3
+
+[profile.release]
+lto = true
+
+[profile.release-dev]
+inherits = "release"
+debug = 1
+incremental = true
+lto = "thin"
 
 [features]
 default = ["metal"]
@@ -14,7 +29,7 @@ glsl = ["jamjar/bypass_spirv_cross"]
 image = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
-jamjar = { path = "..", features = ["everything", "draw_sloth", "draw_groove"] }
+jamjar = { path = "..", features = ["codegen", "everything", "draw_sloth", "draw_groove"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "*" }

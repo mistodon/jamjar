@@ -25,6 +25,10 @@ struct PackageCmd {
     #[structopt(parse(from_os_str))]
     icon_path: Option<PathBuf>,
 
+    /// The profile to compile with.
+    #[structopt(long = "profile", default_value = "release")]
+    profile: String,
+
     /// Space-separated list of features to activate.
     #[structopt(long = "features")]
     features: Vec<String>,
@@ -58,16 +62,16 @@ struct WebBuildCmd {
     #[structopt(long = "features")]
     features: Vec<String>,
 
+    /// The profile to compile with.
+    #[structopt(long = "profile", default_value = "release")]
+    profile: String,
+
     #[structopt(long = "web-includes", short = "w", default_value = "./web")]
     web_includes: PathBuf,
 
     /// Use this flag to skip packaging spirv_cross scripts.
     #[structopt(long)]
     bypass_spirv_cross: bool,
-
-    /// Build with the debug profile instead of release.
-    #[structopt(long)]
-    debug: bool,
 }
 
 /// A simple, opinionated tool for packaging Rust apps (mostly game jam games) for different platforms
@@ -92,6 +96,7 @@ fn package(build_cmd: PackageCmd) {
         output_dir,
         icon_path,
         features,
+        profile,
     } = build_cmd;
 
     let config = PackageConfig {
@@ -100,6 +105,7 @@ fn package(build_cmd: PackageCmd) {
         output_dir,
         icon_path,
         features,
+        profile,
     };
 
     match jamjar_cli::package_app(&config) {
@@ -120,9 +126,9 @@ fn web_build(web_build_cmd: WebBuildCmd) {
         bin_name,
         output_dir,
         features,
+        profile,
         web_includes,
         bypass_spirv_cross,
-        debug,
     } = web_build_cmd;
 
     let config = WebBuildConfig {
@@ -131,9 +137,9 @@ fn web_build(web_build_cmd: WebBuildCmd) {
         bin_name,
         output_dir,
         features,
+        profile,
         web_includes,
         bypass_spirv_cross,
-        debug,
     };
 
     match jamjar_cli::web_build(&config) {

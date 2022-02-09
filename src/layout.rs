@@ -1,3 +1,5 @@
+use crate::draw::{GlyphRegion, PixelRegion, Region};
+
 type Point = [f32; 2];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,6 +156,14 @@ impl Frame {
         Frame { tl, size }
     }
 
+    pub fn between<P: Into<Point>, Q: Into<Point>>(tl: P, br: Q) -> Frame {
+        let tl = tl.into();
+        let br = br.into();
+        let w = br[0] - tl[0];
+        let h = br[1] - tl[1];
+        Frame { tl, size: [w, h] }
+    }
+
     pub fn contains_point(&self, point: Point) -> bool {
         let [x, y] = point;
         let [x0, y0] = self.tl;
@@ -253,8 +263,8 @@ impl Frame {
         let [px, py] = pivot.0;
 
         Frame {
-            tl: [x - ax * 2. * px, y - ay * 2. * py],
-            size: [w + ax * 2., h + ay * 2.],
+            tl: [x - ax * px, y - ay * py],
+            size: [w + ax, h + ay],
         }
     }
     pub fn shrink_rel(&self, amount: [f32; 2], pivot: Pivot) -> Frame {
@@ -270,10 +280,10 @@ impl Frame {
     }
 
     pub fn outset_rel(&self, amount: f32, pivot: Pivot) -> Frame {
-        self.grow_rel([amount, amount], pivot)
+        self.grow_rel([amount * 2., amount * 2.], pivot)
     }
     pub fn inset_rel(&self, amount: f32, pivot: Pivot) -> Frame {
-        self.shrink_rel([amount, amount], pivot)
+        self.shrink_rel([amount * 2., amount * 2.], pivot)
     }
 
     pub fn outset(&self, amount: f32) -> Frame {
@@ -351,5 +361,36 @@ impl From<Cursor> for Frame {
 impl Into<Cursor> for Frame {
     fn into(self) -> Cursor {
         self.tl.into()
+    }
+}
+
+impl From<PixelRegion> for Frame {
+    fn from(r: PixelRegion) -> Self {
+        let [x, y] = r.upper_left;
+        let [w, h] = r.size();
+        Frame {
+            tl: [x as f32, y as f32],
+            size: [w as f32, h as f32],
+        }
+    }
+}
+
+impl From<Region> for Frame {
+    fn from(r: Region) -> Self {
+        let [x, y] = r.pixels.0;
+        let [w, h] = r.size();
+        Frame {
+            tl: [x as f32, y as f32],
+            size: [w as f32, h as f32],
+        }
+    }
+}
+
+impl From<GlyphRegion> for Frame {
+    fn from(r: GlyphRegion) -> Self {
+        Frame {
+            tl: r.pos,
+            size: r.size,
+        }
     }
 }

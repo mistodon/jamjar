@@ -9,6 +9,8 @@ pub mod atlas;
 #[cfg(feature = "audio")]
 pub mod audio;
 
+pub mod color;
+
 pub mod draw;
 
 #[cfg(feature = "font")]
@@ -50,4 +52,10 @@ pub mod timing;
 pub mod utils;
 
 #[cfg(feature = "windowing")]
+pub mod web;
+
+#[cfg(feature = "windowing")]
 pub mod windowing;
+
+#[cfg(target_arch = "wasm32")]
+pub use web_sys;

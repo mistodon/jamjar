@@ -53,7 +53,7 @@ impl FontAtlas {
 impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion> for FontAtlas {
     fn insert(&mut self, insertion: Glyph) {
         self.glyph_cache
-            .queue_glyph(insertion.font_id, insertion.glyph);
+            .queue_glyph(insertion.font_id as usize, insertion.glyph);
         self.modified = true;
     }
 
@@ -68,7 +68,10 @@ impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion> for FontAt
         let scale = key.glyph.scale();
         let ascent = key.glyph.font().v_metrics(scale).ascent;
 
-        let coords = self.glyph_cache.rect_for(key.font_id, &key.glyph).unwrap();
+        let coords = self
+            .glyph_cache
+            .rect_for(key.font_id as usize, &key.glyph)
+            .unwrap();
 
         coords.map(|(uv_rect, px_rect)| {
             use rusttype::Point;

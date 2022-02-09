@@ -1,16 +1,17 @@
+use jamjar::jprintln;
 use jamjar_examples::gen::data::*;
 
 fn main() {
     loop {
-        eprintln!("Static data:");
-        eprintln!("{:#?}", &&**NUMBERS);
-        eprintln!("{:#?}", &&**NUMERI);
-        eprintln!("config = {:#?}", &&**CONFIG);
+        jprintln!("Static data:");
+        jprintln!("{:#?}", &&**NUMBERS);
+        jprintln!("{:#?}", &&**NUMERI);
+        jprintln!("config = {:#?}", &&**CONFIG);
 
-        eprintln!("You can edit assets/numbers.yaml or assets/numeri.toml and it'll live reload.");
+        jprintln!("You can edit assets/numbers.yaml or assets/numeri.toml and it'll live reload.");
 
         let wait = 5;
-        eprintln!("Waiting {} seconds...", wait);
+        jprintln!("Waiting {wait} seconds...");
         std::thread::sleep(std::time::Duration::from_millis(wait * 1000));
 
         unsafe {

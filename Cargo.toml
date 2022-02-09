@@ -5,6 +5,21 @@ authors = ["Vi <violet@hey.com>"]
 description = "A collection of useful crates and utilities for quickly bootstrapping games for game jams."
 edition = "2021"
 
+[profile.dev.package.cpal]
+opt-level = 3
+
+[profile.dev.package.rodio]
+opt-level = 3
+
+[profile.release]
+lto = true
+
+[profile.release-dev]
+inherits = "release"
+debug = 1
+incremental = true
+lto = "thin"
+
 [features]
 default = ["everything"]
 image_atlas = ["image", "texture_packer"]
@@ -64,4 +79,4 @@ winit = { version = "~0.24", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
 version = "0.3.50"
-features = [ "console", "Document", "Element", "HtmlElement", "Node", "Window" ]
+features = [ "console", "Document", "Element", "HtmlElement", "Node", "Touch", "TouchEvent", "TouchList", "Window" ]

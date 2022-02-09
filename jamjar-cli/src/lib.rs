@@ -1,6 +1,6 @@
 use std::io::Error as IOError;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use handlebars::{Handlebars, TemplateRenderError};
 use image::ImageError;
@@ -61,6 +61,7 @@ pub struct PackageConfig {
     pub output_dir: PathBuf,
     pub icon_path: Option<PathBuf>,
     pub features: Vec<String>,
+    pub profile: String,
 }
 
 #[derive(Debug)]
@@ -71,8 +72,8 @@ pub struct WebBuildConfig {
     pub output_dir: PathBuf,
     pub web_includes: PathBuf,
     pub features: Vec<String>,
+    pub profile: String,
     pub bypass_spirv_cross: bool,
-    pub debug: bool,
 }
 
 struct AppConfig<'a> {
@@ -82,6 +83,7 @@ struct AppConfig<'a> {
     version: &'a str,
     bundle_id: &'a str,
     icon_path: &'a Path,
+    target_name: &'a str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,16 +116,21 @@ pub fn package_app(config: &PackageConfig) -> Result<PathBuf, JamjarError> {
 
     println!("App is at: {}", cwd.display());
 
-    println!("Compiling app for release:");
+    let profile = &config.profile;
+    println!("Compiling app for {profile}:");
     {
         let mut cmd = Command::new("cargo");
-        cmd.current_dir(&cwd).arg("build").arg("--release");
+        cmd.current_dir(&cwd)
+            .arg("build")
+            .arg("--profile")
+            .arg(profile);
 
         if !config.features.is_empty() {
             cmd.arg("--no-default-features");
             cmd.arg("--features");
             cmd.args(config.features.iter());
         }
+        cmd.stdout(Stdio::inherit());
 
         let output = cmd.output()?;
 
@@ -197,6 +204,7 @@ pub fn package_app(config: &PackageConfig) -> Result<PathBuf, JamjarError> {
         version: &manifest.package.version,
         bundle_id: &app_name,
         icon_path: &icon_path,
+        target_name: if profile == "dev" { "debug" } else { profile },
     };
 
     let _app_path = create_macos_app(&app_config, temp_dir.as_ref())?;
@@ -244,6 +252,7 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
         version,
         bundle_id,
         icon_path,
+        target_name,
     } = config;
 
     let app_path = destination.join(format!("{}.app", app_name));
@@ -322,6 +331,7 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
             .arg(temp_icons_dir)
             .arg("--output")
             .arg(&app_icons_path)
+            .stdout(Stdio::inherit())
             .output()?;
 
         print!("{}", String::from_utf8_lossy(&output.stdout));
@@ -333,7 +343,7 @@ fn create_macos_app(config: &AppConfig, destination: &Path) -> Result<PathBuf, J
     }
 
     // Executable
-    let exe_path = app_root.join(format!("target/release/{}", exe_name));
+    let exe_path = app_root.join(format!("target/{target_name}/{exe_name}"));
     std::fs::copy(&exe_path, &app_exe_path)?;
 
     let mut perms = std::fs::metadata(&app_exe_path)?.permissions();
@@ -377,13 +387,14 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
     std::fs::create_dir_all(&config.output_dir)
         .map_err(|e| JamjarError::io(e, "Failed to create output directory."))?;
 
-    let profile = if config.debug { "debug" } else { "release" };
-    println!("Compiling app for {}:", profile);
+    let profile = &config.profile;
+    println!("Compiling app for {profile}:");
     {
         let mut cmd = Command::new("cargo");
         cmd.current_dir(&cwd)
             .arg("build")
-            .arg(if config.debug { "" } else { "--release" })
+            .arg("--profile")
+            .arg(profile)
             .arg("--target")
             .arg("wasm32-unknown-unknown");
 
@@ -397,6 +408,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             cmd.arg("--features");
             cmd.args(config.features.iter());
         }
+        cmd.stdout(Stdio::inherit());
 
         let output = cmd.output()?;
 
@@ -422,6 +434,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             .arg("--out-dir")
             .arg(&config.output_dir)
             .arg("--web");
+        cmd.stdout(Stdio::inherit());
 
         let output = cmd.output()?;
 
@@ -466,9 +479,12 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             let mut onload_js_path = path.clone();
             onload_js_path.push("onload.js");
 
-            let inline_js = std::fs::read_to_string(&inline_js_path).unwrap_or_else(|_| String::new());
-            let inline_css = std::fs::read_to_string(&inline_css_path).unwrap_or_else(|_| String::new());
-            let onload_js = std::fs::read_to_string(&onload_js_path).unwrap_or_else(|_| String::new());
+            let inline_js =
+                std::fs::read_to_string(&inline_js_path).unwrap_or_else(|_| String::new());
+            let inline_css =
+                std::fs::read_to_string(&inline_css_path).unwrap_or_else(|_| String::new());
+            let onload_js =
+                std::fs::read_to_string(&onload_js_path).unwrap_or_else(|_| String::new());
 
             (inline_js, inline_css, onload_js)
         };

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -eu
+set -o pipefail
+
+(cd jamjar_examples && cargo run --bin $1)

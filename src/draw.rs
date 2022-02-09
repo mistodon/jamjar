@@ -23,10 +23,28 @@ pub struct PixelRegion {
     pub lower_right: [u32; 2],
 }
 
+impl PixelRegion {
+    pub const fn size(&self) -> [u32; 2] {
+        let [x0, y0] = self.upper_left;
+        let [x1, y1] = self.lower_right;
+        [x1 - x0 + 1, y1 - y0 + 1]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Region {
     pub pixels: ([u32; 2], [u32; 2]),
     pub uv: ([f32; 2], [f32; 2]),
+}
+
+impl Region {
+    pub const fn size(&self) -> [u32; 2] {
+        self.pixels.1
+    }
+
+    pub const fn uv_size(&self) -> [f32; 2] {
+        self.uv.1
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,6 +52,16 @@ pub struct GlyphRegion {
     pub pos: [f32; 2],
     pub size: [f32; 2],
     pub uv: ([f32; 2], [f32; 2]),
+}
+
+impl GlyphRegion {
+    pub const fn size(&self) -> [f32; 2] {
+        self.size
+    }
+
+    pub const fn uv_size(&self) -> [f32; 2] {
+        self.uv.1
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]

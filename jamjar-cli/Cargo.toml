@@ -3,7 +3,16 @@ name = "jamjar-cli"
 version = "0.1.0"
 authors = ["Vi <violet@hey.com>"]
 description = "A simple, opinionated tool for packaging Rust apps for different platforms. Mostly intended for game jams."
-edition = "2018"
+edition = "2021"
+
+[profile.release]
+lto = true
+
+[profile.release-dev]
+inherits = "release"
+debug = 1
+incremental = true
+lto = "thin"
 
 [[bin]]
 name = "jamjar"

@@ -99,14 +99,19 @@ impl Sprite {
         }
     }
 
-    pub fn glyph(region: GlyphRegion, tint: [f32; 4], display_scale_factor: f64) -> Self {
+    pub fn glyph(
+        region: GlyphRegion,
+        tint: [f32; 4],
+        display_scale_factor: f64,
+        depth: Depth,
+    ) -> Self {
         let sf = display_scale_factor as f32;
         let pos = Vec2::new(region.pos) / sf;
         let size = Vec2::new(region.size) / sf;
         let [x, y] = pos.0;
         let [w, h] = size.0;
         Sprite {
-            depth: Depth(0.),
+            depth,
             corners: [[x, y], [x, y + h], [x + w, y + h], [x + w, y]],
             tint,
             atlas_uv: region.uv,
@@ -629,7 +634,7 @@ pub struct Renderer<'a, B: SupportedBackend> {
     sprites: Vec<Sprite>,
 
     #[cfg(feature = "font")]
-    glyphs: Vec<(Glyph, [f32; 4])>,
+    glyphs: Vec<(Glyph, [f32; 4], Depth)>,
 }
 
 impl<'a, B: SupportedBackend> Renderer<'a, B> {
@@ -680,8 +685,68 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
             point.x += dx * sf;
             point.y += dy * sf;
             glyph.glyph.set_position(point);
-            self.glyphs.push((glyph, tint));
+            self.glyphs.push((glyph, tint, Depth(0.)));
         }
+    }
+
+    #[cfg(feature = "font")]
+    pub fn glyphs_d<'g, I>(&mut self, glyphs: I, offset: [f32; 2], tint: [f32; 4], depth: Depth)
+    where
+        I: IntoIterator<Item = &'g Glyph>,
+    {
+        let sf = self.context.scale_factor as f32;
+
+        let [dx, dy] = (Vec2::new(offset) - Vec2::new(self.camera)).0;
+
+        for glyph in glyphs {
+            let mut glyph = glyph.clone();
+            let mut point = glyph.glyph.position();
+            point.x += dx * sf;
+            point.y += dy * sf;
+            glyph.glyph.set_position(point);
+            self.glyphs.push((glyph, tint, depth + self.camera_depth));
+        }
+    }
+
+    #[cfg(feature = "font")]
+    pub fn glyphs_partial<'g, I, F: Fn(char) -> f32>(
+        &mut self,
+        glyphs: I,
+        offset: [f32; 2],
+        tint: [f32; 4],
+        depth: Depth,
+        budget: f32,
+        cost_fn: F,
+    ) -> (f32, Option<usize>)
+    where
+        I: IntoIterator<Item = &'g Glyph>,
+    {
+        let sf = self.context.scale_factor as f32;
+
+        let [dx, dy] = (Vec2::new(offset) - Vec2::new(self.camera)).0;
+
+        let mut budget = budget;
+        let mut drawn = 0;
+
+        for glyph in glyphs {
+            if budget <= 0. {
+                return (0., Some(drawn));
+            }
+
+            let ch = glyph.ch;
+            let mut glyph = glyph.clone();
+            let mut point = glyph.glyph.position();
+            point.x += dx * sf;
+            point.y += dy * sf;
+            glyph.glyph.set_position(point);
+            self.glyphs.push((glyph, tint, depth + self.camera_depth));
+
+            drawn += 1;
+            let cost = cost_fn(ch);
+            budget -= cost;
+        }
+
+        (budget, None)
     }
 
     #[cfg(feature = "font")]
@@ -689,7 +754,7 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
     where
         A: Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion>,
     {
-        for (glyph, _) in &self.glyphs {
+        for (glyph, _, _) in &self.glyphs {
             font_atlas.insert(glyph.clone());
         }
 
@@ -713,10 +778,11 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
             self.upload_atlas_partial(region);
         }
 
-        for (glyph, tint) in self.glyphs.drain(..) {
+        for (glyph, tint, depth) in self.glyphs.drain(..) {
             let glyph_region = font_atlas.fetch(&glyph);
             if let Some(glyph_region) = glyph_region {
-                let glyph_sprite = Sprite::glyph(glyph_region, tint, self.context.scale_factor);
+                let glyph_sprite =
+                    Sprite::glyph(glyph_region, tint, self.context.scale_factor, depth);
                 self.sprites.push(glyph_sprite);
             }
         }
