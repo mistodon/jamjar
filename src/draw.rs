@@ -5,15 +5,25 @@ pub mod groove;
 pub mod sloth;
 
 pub mod backend {
+    #[cfg(feature = "dx12")]
+    pub type Dx12 = gfx_backend_dx12::Backend;
     #[cfg(feature = "opengl")]
     pub type OpenGL = gfx_backend_gl::Backend;
     #[cfg(feature = "metal")]
     pub type Metal = gfx_backend_metal::Backend;
+    #[cfg(feature = "vulkan")]
+    pub type Vulkan = gfx_backend_vulkan::Backend;
+
+    #[cfg(feature = "dx12")]
+    pub type Whatever = Dx12;
 
     #[cfg(feature = "metal")]
     pub type Whatever = Metal;
 
-    #[cfg(all(feature = "opengl", not(any(feature = "metal"))))]
+    #[cfg(feature = "vulkan")]
+    pub type Whatever = Vulkan;
+
+    #[cfg(all(feature = "opengl", not(any(feature = "metal", feature = "dx12", feature = "vulkan"))))]
     pub type Whatever = OpenGL;
 }
 

@@ -37,8 +37,14 @@ pub trait SupportedBackend: Backend {
     }
 }
 
+#[cfg(feature = "dx12")]
+impl SupportedBackend for backend::Dx12 {}
+
 #[cfg(feature = "metal")]
 impl SupportedBackend for backend::Metal {}
+
+#[cfg(feature = "vulkan")]
+impl SupportedBackend for backend::Vulkan {}
 
 #[cfg(feature = "opengl")]
 impl SupportedBackend for backend::OpenGL {

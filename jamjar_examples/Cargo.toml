@@ -21,8 +21,10 @@ lto = "thin"
 
 [features]
 default = ["metal"]
+dx12 = ["jamjar/dx12"]
 opengl = ["jamjar/opengl"]
 metal = ["jamjar/metal"]
+vulkan = ["jamjar/vulkan"]
 glsl = ["jamjar/bypass_spirv_cross"]
 
 [dependencies]
