@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU16, Ordering};
 
-use rusttype::{Font as RTFont, GlyphId, PositionedGlyph};
+use rusttype::{Font as RTFont, GlyphId, Point, PositionedGlyph, Scale, ScaledGlyph};
 
 use crate::layout::Frame;
 
@@ -27,6 +27,7 @@ pub struct Font {
 pub struct Cursor {
     pos: [f32; 2],
     original_start_pos: [f32; 2],
+    max_x: f32,
     prev_glyph: Option<(FontId, GlyphId, LineHeight)>,
 }
 
@@ -56,8 +57,9 @@ impl Cursor {
 
     pub fn frame(&self) -> Frame {
         let tl = self.original_start_pos();
-        let size = self.span();
-        Frame::new(tl, size)
+        let [_, h] = self.span();
+        let w = self.max_x - tl[0];
+        Frame::new(tl, [w, h])
     }
 
     pub fn newline(&mut self, line_height: f32) {
@@ -65,6 +67,27 @@ impl Cursor {
         let y = self.pos[1] + line_height;
         self.pos = [ox, y];
         self.prev_glyph = None;
+    }
+
+    pub(crate) fn kern(&mut self, font: &RTFont, scale: Scale, font_id: FontId, glyph_id: GlyphId) {
+        if let Some((prev_font, prev_glyph, _)) = self.prev_glyph {
+            if prev_font == font_id {
+                self.pos[0] += font.pair_kerning(scale, prev_glyph, glyph_id);
+                self.max_x = self.max_x.max(self.pos[0]);
+            }
+        }
+    }
+
+    pub(crate) fn advance(
+        &mut self,
+        font_id: FontId,
+        line_height: f32,
+        sf: f32,
+        glyph: &ScaledGlyph,
+    ) {
+        let w = glyph.h_metrics().advance_width;
+        self.prev_glyph = Some((font_id, glyph.id(), line_height));
+        self.pos[0] += w / sf;
     }
 }
 
@@ -80,6 +103,7 @@ impl From<[f32; 2]> for Cursor {
             pos,
             original_start_pos: pos,
             prev_glyph: None,
+            max_x: pos[0],
         }
     }
 }
@@ -97,8 +121,6 @@ impl Font {
     }
 
     pub fn glyph(&self, ch: char, pos: [f32; 2], size: f32, scale_factor: f64) -> Glyph {
-        use rusttype::{Point, Scale};
-
         let sf = scale_factor as f32;
         let scale = Scale {
             x: size * sf,
@@ -137,8 +159,6 @@ impl Font {
         size: f32,
         scale_factor: f64,
     ) -> (Cursor, Vec<Glyph>) {
-        use rusttype::{Point, Scale};
-
         let sf = scale_factor as f32;
         let scale = Scale {
             x: size * sf,
@@ -149,7 +169,7 @@ impl Font {
 
         let line_height = {
             let metrics = self.font.v_metrics(scale);
-            (metrics.ascent - metrics.descent) + metrics.line_gap
+            ((metrics.ascent - metrics.descent) + metrics.line_gap) / sf
         };
 
         let glyphs = text
@@ -158,21 +178,15 @@ impl Font {
             .map(|ch| {
                 let g = self.font.glyph(ch);
                 let g = g.scaled(scale);
-                if let Some((prev_id, last, _)) = cursor.prev_glyph {
-                    if prev_id == self.font_id {
-                        cursor.pos[0] += self.font.pair_kerning(scale, last, g.id());
-                    }
-                }
-                let w = g.h_metrics().advance_width;
-                let next = g.positioned(Point {
+                cursor.kern(&self.font, scale, self.font_id, g.id());
+                let p = Point {
                     x: cursor.pos[0] * sf,
                     y: cursor.pos[1] * sf,
-                });
-                cursor.prev_glyph = Some((self.font_id, next.id(), line_height / sf));
-                cursor.pos[0] += w / sf;
+                };
+                cursor.advance(self.font_id, line_height, sf, &g);
                 Glyph {
                     font_id: self.font_id,
-                    glyph: next,
+                    glyph: g.positioned(p),
                     ch,
                 }
             })
@@ -188,8 +202,10 @@ impl Font {
         size: f32,
         scale_factor: f64,
         max_x: f32,
+        line_spacing: f32,
+        align: Option<f32>,
     ) -> Vec<Glyph> {
-        let (_cur, glyphs) = self.layout_wrapped_cur(text, start, size, scale_factor, max_x);
+        let (_cur, glyphs) = self.layout_wrapped_cur(text, start, size, scale_factor, max_x, line_spacing, align);
         glyphs
     }
 
@@ -200,8 +216,10 @@ impl Font {
         size: f32,
         scale_factor: f64,
         max_x: f32,
+        line_spacing: f32,
+        align: Option<f32>,
     ) -> (Cursor, Vec<Glyph>) {
-        use rusttype::{Point, Scale};
+        let align = align.unwrap_or(0.);
 
         let sf = scale_factor as f32;
         let scale = Scale {
@@ -215,56 +233,97 @@ impl Font {
         let line_height = {
             let metrics = self.font.v_metrics(scale);
             ((metrics.ascent - metrics.descent) + metrics.line_gap) / sf
-        };
+        } + line_spacing;
 
         let mut glyphs = vec![];
-        for word in WordIter::new(text.as_ref()) {
-            if word == "\n" {
-                cursor.newline(line_height);
-            } else {
-                let mut word_cursor = cursor.clone();
-                for ch in word.chars() {
-                    let g = self.font.glyph(ch);
-                    let g = g.scaled(scale);
-                    if let Some((prev_id, last, _)) = word_cursor.prev_glyph {
-                        if prev_id == self.font_id {
-                            word_cursor.pos[0] += self.font.pair_kerning(scale, last, g.id());
+        let mut words_in_line = vec![];
+        let mut line_break_word = None;
+        let mut line_end_cursor = cursor.clone();
+        let mut visual_end_cursor = line_end_cursor.clone();
+
+        let mut word_iter = WordIter::new(text.as_ref());
+
+        loop {
+            let word = word_iter.next();
+
+            let mut end_line = word.is_none();
+
+            if let Some(word) = word {
+                if word == "\n" {
+                    end_line = true;
+                } else {
+                    let mut word_cursor = line_end_cursor.clone();
+                    for ch in word.chars() {
+                        let g = self.font.glyph(ch);
+                        let g = g.scaled(scale);
+                        word_cursor.kern(&self.font, scale, self.font_id, g.id());
+                        word_cursor.advance(self.font_id, line_height, sf, &g);
+                    }
+
+                    if word_cursor.pos[0] > max_x && line_end_cursor.pos[0] > min_x {
+                        end_line = true;
+                        if !word.trim_start().is_empty() {
+                            line_break_word = Some(word);
+                        }
+                    } else {
+                        words_in_line.push(word);
+                        line_end_cursor = word_cursor.clone();
+                        if !word.trim_start().is_empty() {
+                            visual_end_cursor = line_end_cursor.clone();
                         }
                     }
-                    let w = g.h_metrics().advance_width;
-                    word_cursor.prev_glyph = Some((self.font_id, g.id(), line_height));
-                    word_cursor.pos[0] += w / sf;
                 }
+            }
 
-                let mut skip_space = false;
-                if word_cursor.pos[0] > max_x && cursor.pos[0] > min_x {
-                    cursor.newline(line_height);
-                    skip_space = word.trim_start().is_empty();
-                }
+            if end_line {
+                let space_on_right = (max_x - visual_end_cursor.pos[0]).max(0.).round();
+                let shift_to_align = space_on_right * align;
+                cursor.pos[0] += shift_to_align;
 
-                if !skip_space {
+                for word in words_in_line.drain(..) {
                     for ch in word.chars() {
                         let g = self.font.glyph(ch);
                         let id = g.id();
                         let g = g.scaled(scale);
-                        if let Some((prev_id, last, _)) = cursor.prev_glyph {
-                            if prev_id == self.font_id {
-                                cursor.pos[0] += self.font.pair_kerning(scale, last, id);
-                            }
-                        }
-                        let w = g.h_metrics().advance_width;
+                        cursor.kern(&self.font, scale, self.font_id, id);
+                        let p = Point {
+                            x: cursor.pos[0] * sf,
+                            y: cursor.pos[1] * sf,
+                        };
+                        cursor.advance(self.font_id, line_height, sf, &g);
                         glyphs.push(Glyph {
                             font_id: self.font_id,
-                            glyph: g.positioned(Point {
-                                x: cursor.pos[0] * sf,
-                                y: cursor.pos[1] * sf,
-                            }),
+                            glyph: g.positioned(p),
                             ch,
                         });
-                        cursor.prev_glyph = Some((self.font_id, id, line_height));
-                        cursor.pos[0] += w / sf;
                     }
                 }
+
+                if word.is_some() {
+                    cursor.newline(line_height);
+                }
+
+                line_end_cursor = cursor.clone();
+                visual_end_cursor = line_end_cursor.clone();
+
+                if let Some(word) = line_break_word.take() {
+                    words_in_line.push(word);
+
+                    for ch in word.chars() {
+                        let g = self.font.glyph(ch);
+                        let g = g.scaled(scale);
+                        line_end_cursor.kern(&self.font, scale, self.font_id, g.id());
+                        line_end_cursor.advance(self.font_id, line_height, sf, &g);
+                    }
+
+                    if !word.trim_start().is_empty() {
+                        visual_end_cursor = line_end_cursor.clone();
+                    }
+                }
+            }
+
+            if word.is_none() {
+                break;
             }
         }
 

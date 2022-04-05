@@ -172,22 +172,26 @@ fn main() {
                 ren.glyphs(&glyphs, [0., 0.], [1., 0., 1., 1.]);
 
                 let glyphs = font.layout_wrapped("An-absurdly-very-long-first-line but the rest of this thing should wrap.\n\nIncluding manual newlines.",
-                    [160., 111.], 11., sf, 260.);
+                    [160., 111.], 11., sf, 260., 0., None);
                 ren.glyphs(&glyphs, [0., 0.], [1., 1., 0., 1.]);
+
+                let glyphs = font.layout_wrapped("Text can be aligned from left, center, right - or anywhere in between.",
+                    [384., 4.], 11., sf, 512., 0., Some(1.));
+                ren.glyphs(&glyphs, [0., 0.], color::WHITE);
 
                 let cost_fn = |ch| match ch {
                     '.' => 0.5,
                     _ => 0.1,
                 };
 
-                let glyphs = font.layout_wrapped("This. Is. Stuttering... Text.", [4., 220.], 11., sf, 120.);
-                let (_, typed) = ren.glyphs_partial(&glyphs, [0., 0.], color::CYAN, 0*D, clock.since(text_start) as f32, cost_fn);
+                let glyphs = font.layout_wrapped("This. Is. Stuttering... Text.", [4., 220.], 11., sf, 120., 0., None);
+                let (_, typed) = ren.glyphs_partial(&glyphs, [0., 0.], color::CYAN, 0*D, clock.since(text_start), cost_fn);
 
-                let (cur, part_1) = font.layout_wrapped_cur("This. Is. ", [128., 220.], 11., sf, 240.);
-                let (cur, part_2) = font.layout_wrapped_cur("Multicolor...", cur, 11., sf, 240.);
-                let (_, part_3) = font.layout_wrapped_cur("Text...", cur, 11., sf, 240.);
+                let (cur, part_1) = font.layout_wrapped_cur("This. Is. ", [128., 220.], 11., sf, 240., 0., None);
+                let (cur, part_2) = font.layout_wrapped_cur("Multicolor...", cur, 11., sf, 240., 0., None);
+                let (_, part_3) = font.layout_wrapped_cur("Text...", cur, 11., sf, 240., 0., None);
 
-                let (budget, _) = ren.glyphs_partial(&part_1, [0., 0.], color::WHITE, 0*D, clock.since(text_start) as f32, cost_fn);
+                let (budget, _) = ren.glyphs_partial(&part_1, [0., 0.], color::WHITE, 0*D, clock.since(text_start), cost_fn);
                 let (budget, _) = ren.glyphs_partial(&part_2, [0., 0.], color::GREEN, 0*D, budget, cost_fn);
                 let (_, multi_typed) = ren.glyphs_partial(&part_3, [0., 0.], color::CYAN, 0*D, budget, cost_fn);
 

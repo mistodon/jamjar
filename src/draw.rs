@@ -23,7 +23,10 @@ pub mod backend {
     #[cfg(feature = "vulkan")]
     pub type Whatever = Vulkan;
 
-    #[cfg(all(feature = "opengl", not(any(feature = "metal", feature = "dx12", feature = "vulkan"))))]
+    #[cfg(all(
+        feature = "opengl",
+        not(any(feature = "metal", feature = "dx12", feature = "vulkan"))
+    ))]
     pub type Whatever = OpenGL;
 }
 

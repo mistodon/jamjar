@@ -193,6 +193,12 @@ impl Frame {
         self.anchor(pivot).frame(size)
     }
 
+    pub fn scale(&self, scale: [f32; 2], pivot: Pivot) -> Frame {
+        let [w, h] = self.size;
+        let [x, y] = scale;
+        self.set_size([w * x, h * y], pivot)
+    }
+
     pub fn move_to<P: Into<Point>>(&self, pos: P, pivot: Pivot) -> Frame {
         let [x0, y0] = self.anchor(pivot).pos;
         let [x1, y1] = pos.into();
@@ -350,10 +356,7 @@ impl Into<Cursor> for Anchor {
 #[cfg(feature = "font")]
 impl From<Cursor> for Frame {
     fn from(cur: Cursor) -> Frame {
-        Frame {
-            tl: cur.original_start_pos(),
-            size: cur.span(),
-        }
+        cur.frame()
     }
 }
 

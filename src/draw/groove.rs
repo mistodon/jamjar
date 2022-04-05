@@ -709,15 +709,15 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
     }
 
     #[cfg(feature = "font")]
-    pub fn glyphs_partial<'g, I, F: Fn(char) -> f32>(
+    pub fn glyphs_partial<'g, I, F: Fn(char) -> f64>(
         &mut self,
         glyphs: I,
         offset: [f32; 2],
         tint: [f32; 4],
         depth: Depth,
-        budget: f32,
+        budget: f64,
         cost_fn: F,
-    ) -> (f32, Option<usize>)
+    ) -> (f64, Option<usize>)
     where
         I: IntoIterator<Item = &'g Glyph>,
     {

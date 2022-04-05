@@ -213,6 +213,12 @@ impl<'a, T, Clock: Copy> MomentMut<'a, T, Clock> {
         self.anim.data = data;
     }
 
+    pub fn replace(&mut self, data: T, duration: f64) {
+        self.anim.start = self.time;
+        self.anim.data = data;
+        self.anim.duration = duration;
+    }
+
     pub fn invert(&mut self, data: T) {
         let time_elapsed = self.time_left().max(0.);
         let start_time = self.time.minus(time_elapsed);

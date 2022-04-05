@@ -31,19 +31,19 @@ macro_rules! jprint {
 #[macro_export]
 macro_rules! dprintln {
     () => {
-        if cfg!(debug_assertions) { jprintln!() } else { () }
+        if cfg!(debug_assertions) { $crate::jprintln!() } else { () }
     };
     ($($arg:tt)*) => {
-        if cfg!(debug_assertions) { jprintln!($($arg)*) } else { () }
+        if cfg!(debug_assertions) { $crate::jprintln!($($arg)*) } else { () }
     }
 }
 
 #[macro_export]
 macro_rules! dprint {
     () => {
-        if cfg!(debug_assertions) { jprint!() } else { () }
+        if cfg!(debug_assertions) { $crate::jprint!() } else { () }
     };
     ($($arg:tt)*) => {
-        if cfg!(debug_assertions) { jprint!($($arg)*) } else { () }
+        if cfg!(debug_assertions) { $crate::jprint!($($arg)*) } else { () }
     }
 }

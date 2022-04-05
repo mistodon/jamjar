@@ -158,6 +158,26 @@ impl Menu {
         x >= sx && x < (sx + w) && y >= sy && y < (sy + h)
     }
 
+    pub fn interact_if(
+        &mut self,
+        allow_interaction: bool,
+        direction_input: [isize; 2],
+        confirm_pressed: bool,
+        mouse_pos: Option<[f32; 2]>,
+        mouse_clicked: bool,
+    ) {
+        self.interact(
+            if allow_interaction {
+                direction_input
+            } else {
+                [0, 0]
+            },
+            confirm_pressed && allow_interaction,
+            if allow_interaction { mouse_pos } else { None },
+            mouse_clicked && allow_interaction,
+        )
+    }
+
     // TODO: feedback - did we bonk?
     pub fn interact(
         &mut self,

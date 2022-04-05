@@ -393,6 +393,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         let mut cmd = Command::new("cargo");
         cmd.current_dir(&cwd)
             .arg("build")
+            .args(&["--color", "always"])
             .arg("--profile")
             .arg(profile)
             .arg("--target")
@@ -408,14 +409,11 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             cmd.arg("--features");
             cmd.args(config.features.iter());
         }
-        cmd.stdout(Stdio::inherit());
 
-        let output = cmd.output()?;
+        let mut child = cmd.spawn()?;
+        let status = child.wait()?;
 
-        print!("{}", String::from_utf8_lossy(&output.stdout));
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
-
-        if !output.status.success() {
+        if !status.success() {
             return Err(JamjarError::ExternalCommandError("cargo"));
         }
     }
