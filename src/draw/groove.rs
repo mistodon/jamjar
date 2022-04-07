@@ -124,6 +124,15 @@ impl Sprite {
         }
     }
 
+    pub fn corners(region: Region, corners: [[f32; 2]; 4], tint: [f32; 4], depth: Depth) -> Self {
+        Sprite {
+            depth,
+            corners,
+            tint,
+            atlas_uv: region.uv,
+        }
+    }
+
     // Legacy - for Groove Arc
     pub fn gauge(region: Region, pos: [f32; 2], proportion: f32, brightness: f32) -> Self {
         let [w, h] = Vec2::new(region.pixels.1).as_f32().0;
