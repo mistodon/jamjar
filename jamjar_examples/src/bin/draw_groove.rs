@@ -119,6 +119,13 @@ fn main() {
                 let sf = context.scale_factor();
                 let mut ren = context.start_rendering([0.2, 0., 0.4, 1.]);
 
+                ren.set_palette([
+                    [0.9, 0.9, 0.9, 1.0],
+                    [t % 1.0, (t*3.) % 1.0, 0., 1.0],
+                    [0.5, 0.5, 0.5, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]);
+
                 for i in 0..8 {
                     let ii = i as f32 / 8.;
                     let it = (t + ii) % 1.;

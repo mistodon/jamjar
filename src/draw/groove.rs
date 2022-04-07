@@ -36,6 +36,15 @@ const SHADER_SOURCES: (&'static [u8], &'static [u8]) = (
 pub const MAX_SPRITES: usize = 30000;
 const VERTEX_BUFFER_LEN: usize = MAX_SPRITES * 6;
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PushConstants {
+    pub white: [f32; 4],
+    pub light: [f32; 4],
+    pub dim: [f32; 4],
+    pub black: [f32; 4],
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sprite {
     pub depth: Depth,
@@ -332,7 +341,7 @@ impl<B: SupportedBackend> DrawContext<B> {
         let (pipeline_to_canvas, pipeline_layout_to_canvas) = easy::pipeline::<B>(
             &device,
             Some(&desc_set_layout),
-            0,
+            std::mem::size_of::<PushConstants>() as u32,
             SHADER_SOURCES.0,
             SHADER_SOURCES.1,
             &render_pass_to_canvas,
@@ -343,7 +352,7 @@ impl<B: SupportedBackend> DrawContext<B> {
         let (pipeline_to_surface, pipeline_layout_to_surface) = easy::pipeline::<B>(
             &device,
             Some(&desc_set_layout),
-            0,
+            std::mem::size_of::<PushConstants>() as u32,
             SHADER_SOURCES.0,
             SHADER_SOURCES.1,
             &render_pass_to_surface,
@@ -547,6 +556,7 @@ impl<B: SupportedBackend> DrawContext<B> {
             clear_color,
             camera: [0., 0.],
             camera_depth: Depth(0.),
+            palette: Default::default(),
             framebuffer_to_canvas,
             framebuffer_to_surface,
             sprites: vec![
@@ -625,6 +635,7 @@ pub struct Renderer<'a, B: SupportedBackend> {
     clear_color: Color,
     camera: [f32; 2],
     camera_depth: Depth,
+    palette: [[f32; 4]; 4],
     framebuffer_to_canvas: B::Framebuffer,
     framebuffer_to_surface: Option<(
         B::Framebuffer,
@@ -652,6 +663,10 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
 
     pub fn clear_depth(&mut self) {
         self.camera_depth = Depth(0.);
+    }
+
+    pub fn set_palette(&mut self, palette: [[f32; 4]; 4]) {
+        self.palette = palette;
     }
 
     pub fn add_depth(&mut self, amount: Depth) {
@@ -1118,6 +1133,18 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     );
 
                     self.context.command_buffer.bind_graphics_pipeline(pipeline);
+
+                    self.context.command_buffer.push_graphics_constants(
+                        pipeline_layout,
+                        ShaderStageFlags::FRAGMENT,
+                        0,
+                        gfx::push_constant_bytes(&PushConstants {
+                            white: self.palette[0],
+                            light: self.palette[1],
+                            dim: self.palette[2],
+                            black: self.palette[3],
+                        }),
+                    );
 
                     let num_verts = verts.len() as u32;
                     self.context.command_buffer.draw(6..num_verts, 0..1);
