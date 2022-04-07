@@ -23,6 +23,9 @@ fn main() {
 
     let (window, event_loop) = windowing::window_and_event_loop("Window Test", resolution).unwrap();
 
+    let palette_img = image::load_from_memory(&jamjar::resource!("assets/images/palette.png"))
+        .unwrap()
+        .to_rgba8();
     let white_img = image::load_from_memory(&jamjar::resource!("assets/images/white.png"))
         .unwrap()
         .to_rgba8();
@@ -37,6 +40,7 @@ fn main() {
 
     let mut atlas_image = image::RgbaImage::new(4096, 4096);
     let mut atlas = FontImageAtlas::new([4096, 4096], 1024);
+    atlas.images.insert(("palette".to_owned(), palette_img));
     atlas.images.insert(("white".to_owned(), white_img));
     atlas.images.insert(("bubble".to_owned(), bubble_img));
     atlas.compile_into(&mut atlas_image);
@@ -119,12 +123,7 @@ fn main() {
                 let sf = context.scale_factor();
                 let mut ren = context.start_rendering([0.2, 0., 0.4, 1.]);
 
-                ren.set_palette([
-                    [0.9, 0.9, 0.9, 1.0],
-                    [t % 1.0, (t*3.) % 1.0, 0., 1.0],
-                    [0.5, 0.5, 0.5, 1.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]);
+                ren.set_palette(0, 0.25);
 
                 for i in 0..8 {
                     let ii = i as f32 / 8.;

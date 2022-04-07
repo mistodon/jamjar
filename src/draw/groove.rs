@@ -38,11 +38,8 @@ const VERTEX_BUFFER_LEN: usize = MAX_SPRITES * 6;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct PushConstants {
-    pub white: [f32; 4],
-    pub light: [f32; 4],
-    pub dim: [f32; 4],
-    pub black: [f32; 4],
+pub struct Palette {
+    pub colors: [[f32; 4]; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,7 +163,7 @@ impl Sprite {
 #[repr(C)]
 struct Vertex {
     pub tint: [f32; 4],
-    pub uv: [f32; 2],
+    pub uv: [f32; 4],
     pub offset: [f32; 3],
 }
 
@@ -341,23 +338,23 @@ impl<B: SupportedBackend> DrawContext<B> {
         let (pipeline_to_canvas, pipeline_layout_to_canvas) = easy::pipeline::<B>(
             &device,
             Some(&desc_set_layout),
-            std::mem::size_of::<PushConstants>() as u32,
+            0,
             SHADER_SOURCES.0,
             SHADER_SOURCES.1,
             &render_pass_to_canvas,
             None,
-            &[4, 2, 3],
+            &[4, 4, 3],
         );
 
         let (pipeline_to_surface, pipeline_layout_to_surface) = easy::pipeline::<B>(
             &device,
             Some(&desc_set_layout),
-            std::mem::size_of::<PushConstants>() as u32,
+            0,
             SHADER_SOURCES.0,
             SHADER_SOURCES.1,
             &render_pass_to_surface,
             None,
-            &[4, 2, 3],
+            &[4, 4, 3],
         );
 
         let submission_complete_fence = device.create_fence(true).expect("Out of memory");
@@ -556,7 +553,8 @@ impl<B: SupportedBackend> DrawContext<B> {
             clear_color,
             camera: [0., 0.],
             camera_depth: Depth(0.),
-            palette: Default::default(),
+            palette: 0,
+            palette_split: 0.25,
             framebuffer_to_canvas,
             framebuffer_to_surface,
             sprites: vec![
@@ -635,7 +633,8 @@ pub struct Renderer<'a, B: SupportedBackend> {
     clear_color: Color,
     camera: [f32; 2],
     camera_depth: Depth,
-    palette: [[f32; 4]; 4],
+    palette: usize,
+    palette_split: f32,
     framebuffer_to_canvas: B::Framebuffer,
     framebuffer_to_surface: Option<(
         B::Framebuffer,
@@ -665,8 +664,9 @@ impl<'a, B: SupportedBackend> Renderer<'a, B> {
         self.camera_depth = Depth(0.);
     }
 
-    pub fn set_palette(&mut self, palette: [[f32; 4]; 4]) {
+    pub fn set_palette(&mut self, palette: usize, split: f32) {
         self.palette = palette;
+        self.palette_split = split;
     }
 
     pub fn add_depth(&mut self, amount: Depth) {
@@ -914,6 +914,8 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
         self.sprites
             .sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap());
 
+        let palette_index = self.palette as f32;
+        let palette_split = self.palette_split;
         for sprite in &self.sprites {
             let tint = if is_srgb(self.context.surface_color_format) {
                 gfx::srgb_to_linear(sprite.tint)
@@ -925,22 +927,22 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
             let p0 = Vertex {
                 offset: project(corners[0]),
                 tint: tint,
-                uv: [u0, v0],
+                uv: [u0, v0, palette_index, palette_split],
             };
             let p1 = Vertex {
                 offset: project(corners[1]),
                 tint: tint,
-                uv: [u0, v0 + vh],
+                uv: [u0, v0 + vh, palette_index, palette_split],
             };
             let p2 = Vertex {
                 offset: project(corners[2]),
                 tint: tint,
-                uv: [u0 + uw, v0 + vh],
+                uv: [u0 + uw, v0 + vh, palette_index, palette_split],
             };
             let p3 = Vertex {
                 offset: project(corners[3]),
                 tint: tint,
-                uv: [u0 + uw, v0],
+                uv: [u0 + uw, v0, palette_index, palette_split],
             };
             verts.push(p0);
             verts.push(p1);
@@ -963,32 +965,32 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
         };
         verts[0] = Vertex {
             offset: [-1., -1. * flip, 0.],
-            uv: [0., 0.],
+            uv: [0., 0., palette_index, palette_split],
             tint: white,
         };
         verts[1] = Vertex {
             offset: [-1., 1. * flip, 0.],
-            uv: [0., 1.],
+            uv: [0., 1., palette_index, palette_split],
             tint: white,
         };
         verts[2] = Vertex {
             offset: [1., 1. * flip, 0.],
-            uv: [1., 1.],
+            uv: [1., 1., palette_index, palette_split],
             tint: white,
         };
         verts[3] = Vertex {
             offset: [-1., -1. * flip, 0.],
-            uv: [0., 0.],
+            uv: [0., 0., palette_index, palette_split],
             tint: white,
         };
         verts[4] = Vertex {
             offset: [1., 1. * flip, 0.],
-            uv: [1., 1.],
+            uv: [1., 1., palette_index, palette_split],
             tint: white,
         };
         verts[5] = Vertex {
             offset: [1., -1. * flip, 0.],
-            uv: [1., 0.],
+            uv: [1., 0., palette_index, palette_split],
             tint: white,
         };
 
@@ -1133,18 +1135,6 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
                     );
 
                     self.context.command_buffer.bind_graphics_pipeline(pipeline);
-
-                    self.context.command_buffer.push_graphics_constants(
-                        pipeline_layout,
-                        ShaderStageFlags::FRAGMENT,
-                        0,
-                        gfx::push_constant_bytes(&PushConstants {
-                            white: self.palette[0],
-                            light: self.palette[1],
-                            dim: self.palette[2],
-                            black: self.palette[3],
-                        }),
-                    );
 
                     let num_verts = verts.len() as u32;
                     self.context.command_buffer.draw(6..num_verts, 0..1);

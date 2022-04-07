@@ -2,8 +2,8 @@
 
 out vec4 vcolor;
 layout(location = 0) in vec4 tint;
-out vec2 vuv;
-layout(location = 1) in vec2 uv;
+out vec4 vuv;
+layout(location = 1) in vec4 uv;
 layout(location = 2) in vec3 offset;
 
 void main()
