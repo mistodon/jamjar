@@ -193,6 +193,14 @@ impl Frame {
         self.anchor(pivot).frame(size)
     }
 
+    pub fn set_width(&self, width: f32, pivot: Pivot) -> Frame {
+        self.set_size([width, self.size[1]], pivot)
+    }
+
+    pub fn set_height(&self, height: f32, pivot: Pivot) -> Frame {
+        self.set_size([self.size[0], height], pivot)
+    }
+
     pub fn scale(&self, scale: [f32; 2], pivot: Pivot) -> Frame {
         let [w, h] = self.size;
         let [x, y] = scale;
