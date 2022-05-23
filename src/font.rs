@@ -205,7 +205,8 @@ impl Font {
         line_spacing: f32,
         align: Option<f32>,
     ) -> Vec<Glyph> {
-        let (_cur, glyphs) = self.layout_wrapped_cur(text, start, size, scale_factor, max_x, line_spacing, align);
+        let (_cur, glyphs) =
+            self.layout_wrapped_cur(text, start, size, scale_factor, max_x, line_spacing, align);
         glyphs
     }
 
