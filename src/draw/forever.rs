@@ -1160,7 +1160,7 @@ impl<'a, B: SupportedBackend> Drop for Renderer<'a, B> {
 
                 self.context.command_buffer.finish();
 
-                use hal::queue::CommandQueue;
+                use hal::queue::Queue;
 
                 self.context.queue_group.queues[0].submit(
                     over([&self.context.command_buffer]),

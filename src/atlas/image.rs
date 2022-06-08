@@ -17,7 +17,7 @@ where
 {
     regions: HashMap<K::Owned, Region>,
     source_images: HashMap<K::Owned, RgbaImage>,
-    packer: TexturePacker<'a, RgbaImage>,
+    packer: TexturePacker<'a, RgbaImage, K::Owned>,
     pre_made_atlas: Option<RgbaImage>,
     backing_image_size: [u32; 2],
     available_area: ([u32; 2], [u32; 2]),
@@ -66,6 +66,7 @@ where
     }
 
     pub fn pre_made(
+        key: K::Owned,
         atlas_image: RgbaImage,
         regions: HashMap<K::Owned, Region>,
         backing_size: [u32; 2],
@@ -73,8 +74,8 @@ where
         let [bw, bh] = backing_size;
 
         let mut packer = TexturePacker::new_skyline(Self::config([bw, bh]));
-        packer.pack_own(String::new(), atlas_image.clone()).unwrap();
-        let frame = packer.get_frame("").unwrap().frame;
+        packer.pack_own(key.clone(), atlas_image.clone()).unwrap();
+        let frame = packer.get_frame(&key).unwrap().frame;
 
         assert!(
             frame.x == 0 && frame.y == 0,
@@ -106,11 +107,8 @@ where
     K::Owned: Clone + Eq + Hash,
 {
     fn insert(&mut self, (key, image): (K::Owned, RgbaImage)) {
-        let string_key = self.source_images.len().to_string();
-        self.packer
-            .pack_own(string_key.clone(), image.clone())
-            .unwrap();
-        let texture_packer::Rect { x, y, w, h } = self.packer.get_frame(&string_key).unwrap().frame;
+        self.packer.pack_own(key.clone(), image.clone()).unwrap();
+        let texture_packer::Rect { x, y, w, h } = self.packer.get_frame(&key).unwrap().frame;
 
         let [bw, bh] = self.backing_image_size;
         let [bw, bh] = [bw as f32, bh as f32];

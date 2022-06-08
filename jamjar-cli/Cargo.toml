@@ -24,12 +24,12 @@ default = ["cli"]
 cli = ["structopt"]
 
 [dependencies]
-handlebars = "~3.5.4"
-image = "~0.23.14"
-serde = { version = "~1.0.125", features = ["derive"] }
+handlebars = "~4.3.0"
+image = "~0.24.2"
+serde = { version = "~1.0.137", features = ["derive"] }
 tempfile = "~3.2.0"
 thiserror = "~1.0.24"
-toml = "~0.5.8"
+toml = "~0.5.9"
 zip = "~0.5.11"
 
 [dependencies.structopt]

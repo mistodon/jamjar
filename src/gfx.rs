@@ -73,10 +73,11 @@ pub unsafe fn make_buffer<B: Backend>(
     usage: gfx_hal::buffer::Usage,
     properties: gfx_hal::memory::Properties,
 ) -> (B::Memory, B::Buffer) {
+    use gfx_hal::memory::SparseFlags;
     use gfx_hal::MemoryTypeId;
 
     let mut buffer = device
-        .create_buffer(buffer_len as u64, usage)
+        .create_buffer(buffer_len as u64, usage, SparseFlags::empty())
         .expect("Failed to create buffer");
 
     let req = device.get_buffer_requirements(&buffer);
@@ -114,7 +115,7 @@ pub unsafe fn make_image<B: Backend>(
 ) -> (B::Memory, B::Image, B::ImageView) {
     use gfx_hal::format::Swizzle;
     use gfx_hal::image::{Kind, SubresourceRange, Tiling, ViewCapabilities, ViewKind};
-    use gfx_hal::memory::Properties;
+    use gfx_hal::memory::{Properties, SparseFlags};
 
     let (width, height) = image_size;
     let image_kind = Kind::D2(width, height, 1, 1);
@@ -126,6 +127,7 @@ pub unsafe fn make_image<B: Backend>(
             format,
             Tiling::Optimal,
             usage,
+            SparseFlags::empty(),
             ViewCapabilities::empty(),
         )
         .expect("TODO");
@@ -154,6 +156,7 @@ pub unsafe fn make_image<B: Backend>(
             ViewKind::D2,
             format,
             Swizzle::NO,
+            usage,
             SubresourceRange {
                 aspects,
                 level_start: 0,
@@ -171,7 +174,7 @@ pub(crate) unsafe fn upload_image_part<B: Backend>(
     device: &B::Device,
     physical_device: &B::PhysicalDevice,
     command_pool: &mut B::CommandPool,
-    queue: &mut B::CommandQueue,
+    queue: &mut B::Queue,
     image_resource: &B::Image,
     image_width: u32,
     row_range: std::ops::RangeInclusive<u32>,
@@ -194,7 +197,7 @@ pub(crate) unsafe fn upload_image_part<B: Backend>(
 
     let row_count = row_range.end() - row_range.start() + 1;
 
-    let limits = physical_device.limits();
+    let limits = physical_device.properties().limits;
     let non_coherent_alignment = limits.non_coherent_atom_size as u64;
     let row_alignment = limits.optimal_buffer_copy_pitch_alignment;
 
@@ -327,7 +330,7 @@ pub unsafe fn upload_image<B: Backend>(
     device: &B::Device,
     physical_device: &B::PhysicalDevice,
     command_pool: &mut B::CommandPool,
-    queue: &mut B::CommandQueue,
+    queue: &mut B::Queue,
     image_resource: &B::Image,
     image_size: (u32, u32),
     image_bytes: &[u8],
@@ -349,7 +352,7 @@ pub unsafe fn upload_image<B: Backend>(
         (n + mask) & !mask
     }
 
-    let limits = physical_device.limits();
+    let limits = physical_device.properties().limits;
     let non_coherent_alignment = limits.non_coherent_atom_size as u64;
     let row_alignment = limits.optimal_buffer_copy_pitch_alignment;
 
