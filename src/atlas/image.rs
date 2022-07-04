@@ -182,3 +182,15 @@ where
         self.modified
     }
 }
+
+impl<'a, K> std::ops::Index<&K> for ImageAtlas<'a, K>
+where
+    K: ToOwned + Eq + Hash + ?Sized,
+    K::Owned: Clone + Eq + Hash,
+{
+    type Output = Region;
+
+    fn index(&self, key: &K) -> &Region {
+        &self.regions[key]
+    }
+}

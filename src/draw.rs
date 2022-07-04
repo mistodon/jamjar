@@ -1,3 +1,6 @@
+#[cfg(feature = "draw_forever")]
+pub mod forever;
+
 #[cfg(feature = "draw_groove")]
 pub mod groove;
 
@@ -57,6 +60,27 @@ impl Region {
 
     pub const fn uv_size(&self) -> [f32; 2] {
         self.uv.1
+    }
+
+    pub fn sub(&self, size: [u32; 2], index: [usize; 2]) -> Self {
+        let (px_pos, px_size) = self.pixels;
+        let (uv_pos, uv_size) = self.uv;
+        let tile_x = px_size[0] / size[0];
+        let tile_y = px_size[1] / size[1];
+        let sub_px_size = [px_size[0] / tile_x, px_size[1] / tile_y];
+        let sub_uv_size = [uv_size[0] / tile_x as f32, uv_size[1] / tile_y as f32];
+        let sub_px_pos = [
+            px_pos[0] + sub_px_size[0] * index[0] as u32,
+            px_pos[1] + sub_px_size[1] * index[1] as u32,
+        ];
+        let sub_uv_pos = [
+            uv_pos[0] + sub_uv_size[0] * index[0] as f32,
+            uv_pos[1] + sub_uv_size[1] * index[1] as f32,
+        ];
+        Region {
+            pixels: (sub_px_pos, sub_px_size),
+            uv: (sub_uv_pos, sub_uv_size),
+        }
     }
 }
 

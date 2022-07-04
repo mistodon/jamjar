@@ -4,7 +4,10 @@ pub use toml::from_str as parse_toml;
 
 #[macro_export]
 macro_rules! static_data_mod {
-    ($visibility:vis mod $modname:ident { $(static $constname:ident : $datatype:ty = $fnname:ident ( $path:literal ) ;)* }) => {
+    ($visibility:vis mod $modname:ident {
+        $(static $constname:ident : $datatype:ty = $fnname:ident ( $path:literal ) ;)*
+        $(use static $constname2:ident : $datatype2:ty = $fnname2:ident ;)*
+    }) => {
 
         $visibility mod $modname {
             use super::*;
@@ -23,11 +26,17 @@ macro_rules! static_data_mod {
                 $(
                     pub static ref $constname: jamjar::reloading::DirtyStatic<$datatype> = jamjar::reloading::DirtyStatic::new($fnname().unwrap());
                 )*
+                $(
+                    pub static ref $constname2: jamjar::reloading::DirtyStatic<$datatype2> = jamjar::reloading::DirtyStatic::new($fnname2().unwrap());
+                )*
             }
 
             pub unsafe fn reload_all() {
                 $(
                     $fnname().map(|x| $constname.replace(x)).unwrap_or(());
+                )*
+                $(
+                    $fnname2().map(|x| $constname2.replace(x)).unwrap_or(());
                 )*
             }
         }
