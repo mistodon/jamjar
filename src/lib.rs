@@ -34,6 +34,9 @@ pub mod math;
 
 pub mod menus;
 
+#[cfg(feature = "mesh")]
+pub mod mesh;
+
 #[cfg(feature = "reloading")]
 pub mod reloading;
 #[cfg(feature = "reloading")]

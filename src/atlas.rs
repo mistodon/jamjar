@@ -7,6 +7,9 @@ pub mod image;
 #[cfg(all(feature = "image_atlas", feature = "font"))]
 mod font_image;
 
+#[cfg(feature = "mesh")]
+mod mesh;
+
 #[cfg(all(feature = "image_atlas", feature = "font"))]
 pub use self::font_image::*;
 

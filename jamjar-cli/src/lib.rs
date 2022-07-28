@@ -2,7 +2,7 @@ use std::io::Error as IOError;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use handlebars::{Handlebars, TemplateRenderError};
+use handlebars::{Handlebars, RenderError};
 use image::ImageError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -29,7 +29,7 @@ pub enum JamjarError {
     #[error("an error occurred while writing to template")]
     TemplateError {
         #[from]
-        cause: TemplateRenderError,
+        cause: RenderError,
     },
 
     #[error("failed to decode icon image")]
