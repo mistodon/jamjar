@@ -2,8 +2,8 @@ use std::ops::Range;
 
 #[derive(Debug, Clone)]
 pub struct MeshIndex {
-    pub vertex_range: Range<usize>,
-    pub index_range: Range<usize>,
+    pub vertex_range: Range<u32>,
+    pub index_range: Range<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -13,10 +13,22 @@ pub struct Mesh<V> {
 }
 
 impl<V> Mesh<V> {
+    pub fn new() -> Self {
+        Mesh {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        }
+    }
+
     pub fn offset_indices(&mut self, amount: u16) {
         for i in self.indices.iter_mut() {
             *i += amount;
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.vertices.clear();
+        self.indices.clear();
     }
 
     pub fn push(&mut self, mesh: Mesh<V>) {
@@ -37,8 +49,8 @@ impl<V> Mesh<V> {
 
     pub fn span_index(&self) -> MeshIndex {
         MeshIndex {
-            vertex_range: 0..self.vertex_count(),
-            index_range: 0..self.index_count(),
+            vertex_range: 0..self.vertex_count() as u32,
+            index_range: 0..self.index_count() as u32,
         }
     }
 }

@@ -7,6 +7,9 @@ pub mod groove;
 #[cfg(feature = "draw_sloth")]
 pub mod sloth;
 
+#[cfg(feature = "draw_popup")]
+pub mod popup;
+
 pub mod backend {
     #[cfg(feature = "dx12")]
     pub type Dx12 = gfx_backend_dx12::Backend;
@@ -102,7 +105,22 @@ impl GlyphRegion {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct Depth(pub f32);
+pub struct Depth(f32);
+
+impl Depth {
+    pub fn new(value: f32) -> Self {
+        assert!(value.is_normal());
+        Depth(value)
+    }
+}
+
+impl Eq for Depth {}
+
+impl Ord for Depth {
+    fn cmp(&self, other: &Depth) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
 
 pub const D: Depth = Depth(1.);
 

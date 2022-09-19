@@ -5,8 +5,8 @@ set -o pipefail
 
 cargo check
 cargo check --no-default-features
-cargo check --features metaldev
-cargo check --features metaldev
-cargo test --features metaldev
+cargo check --features wdev
+cargo check --features wdev
+cargo test --features wdev
 
 (cd jamjar_examples && cargo check)

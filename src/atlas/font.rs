@@ -96,6 +96,10 @@ impl Atlas<Glyph, Glyph, Option<GlyphRegion>, RgbaImage, PixelRegion> for FontAt
         })
     }
 
+    fn remove_and_invalidate(&mut self, _key: &Glyph) {
+        self.glyph_cache.clear();
+    }
+
     fn compile_into(&mut self, dest: &mut RgbaImage) -> Option<PixelRegion> {
         let mut upload_required = false;
 

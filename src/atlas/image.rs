@@ -131,6 +131,14 @@ where
         self.regions[key]
     }
 
+    fn remove_and_invalidate(&mut self, key: &K) {
+        let mut source_images = std::mem::replace(&mut self.source_images, Default::default());
+        source_images.remove(key);
+        for (key, image) in source_images {
+            self.insert((key, image));
+        }
+    }
+
     fn compile_into(&mut self, dest: &mut RgbaImage) -> Option<PixelRegion> {
         use image::GenericImage;
 

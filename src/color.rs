@@ -1,7 +1,8 @@
 pub type Color = [f32; 4];
 
-pub const WHITE: Color = [1., 1., 1., 1.];
+pub const TRANS: Color = [0., 0., 0., 0.];
 pub const BLACK: Color = [0., 0., 0., 1.];
+pub const WHITE: Color = [1., 1., 1., 1.];
 pub const RED: Color = [1., 0., 0., 1.];
 pub const GREEN: Color = [0., 1., 0., 1.];
 pub const BLUE: Color = [0., 0., 1., 1.];

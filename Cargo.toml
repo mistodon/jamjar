@@ -22,22 +22,24 @@ lto = "thin"
 
 [features]
 default = ["everything"]
-image_atlas = ["image", "texture_packer"]
-audio = ["rodio"]
-codegen = ["edres"]
+image_atlas = ["dep:image", "dep:texture_packer"]
+audio = ["dep:rodio"]
+codegen = ["dep:edres"]
 draw_sloth = ["gfx", "windowing"]
 draw_groove = ["gfx", "math", "windowing"]
 draw_forever = ["gfx", "math", "windowing"]
-font = ["rusttype"]
-gfx = ["gfx-hal", "gfx-auxil", "image"]
-input = ["buttons", "windowing"]
-logging = ["console_log", "console_error_panic_hook", "log"]
-math = ["okmath"]
+draw_popup = ["wgpu", "math", "windowing"]
+font = ["dep:rusttype"]
+gfx = ["dep:gfx-hal", "dep:gfx-auxil", "dep:image"]
+input = ["dep:buttons", "windowing"]
+logging = ["dep:console_log", "dep:console_error_panic_hook", "dep:log"]
+math = ["dep:okmath"]
 mesh = []
-reloading = ["dirty_static", "dymod", "lazy_static", "resource", "serde_yaml", "toml"]
-resources = ["resource"]
-timing = ["wasm-bindgen"]
-windowing = ["winit"]
+reloading = ["dep:dirty_static", "dep:dymod", "dep:lazy_static", "dep:resource", "dep:serde_yaml", "dep:toml"]
+resources = ["dep:resource"]
+timing = ["dep:wasm-bindgen"]
+windowing = ["dep:winit"]
+wgpu = ["dep:wgpu", "dep:pollster"]
 everything = ["image_atlas", "audio", "font", "input", "logging", "math", "mesh", "reloading", "resources", "timing", "windowing"]
 
 dx12 = ["gfx-backend-dx12"]
@@ -46,6 +48,7 @@ opengl = ["gfx-backend-gl"]
 vulkan = ["gfx-backend-vulkan"]
 bypass_spirv_cross = []
 
+wdev = ["everything", "draw_popup"]
 dxdev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "dx12"]
 metaldev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "metal"]
 vulkandev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "vulkan"]
@@ -59,15 +62,16 @@ gfx-backend-dx12 = { version = "~0.9.1", optional = true }
 gfx-backend-gl = { version = "~0.9.0", optional = true }
 gfx-backend-metal = { version = "~0.9.1", optional = true }
 gfx-backend-vulkan = { version = "~0.9.0", optional = true }
-image = { version = "~0.24.2", optional = true }
+image = { version = "~0.24.3", optional = true }
 lazy_static = { version = "~1.4.0", optional = true }
 log = { version = "~0.4.14", optional = true }
 okmath = { git = "https://github.com/mistodon/okmath", branch = "main", optional = true }
 rusttype = { version = "~0.9.2", features = ["gpu_cache"], optional = true }
-serde = { version = "~1.0.137", features = ["derive"] }
+serde = { version = "~1.0.140", features = ["derive"] }
 serde_yaml = { version = "~0.8.24", optional = true }
 texture_packer = { version = "~0.24.0", optional = true }
 toml = { version = "~0.5.9", optional = true }
+wgpu = { version = "~0.13.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_log = { version = "~0.2.0", optional = true }
@@ -83,7 +87,8 @@ winit = { version = "~0.24", optional = true, features = ["web-sys"] }
 dymod = { version = "~0.3", optional = true }
 resource = { version = "~0.5", optional = true, features = ["experimental-resource-list"] }
 rodio = { version = "~0.13.1", optional = true, features = ["flac", "vorbis", "wav"], default-features = false }
-winit = { version = "~0.24", optional = true }
+pollster = { version = "0.2.5", optional = true }
+winit = { version = "~0.26", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
 version = "0.3.50"
