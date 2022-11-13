@@ -28,13 +28,15 @@ codegen = ["dep:edres"]
 draw_sloth = ["gfx", "windowing"]
 draw_groove = ["gfx", "math", "windowing"]
 draw_forever = ["gfx", "math", "windowing"]
-draw_popup = ["wgpu", "math", "windowing"]
+draw_popup = ["dep:hvec", "font", "gltf", "wgpu", "math", "windowing"]
 font = ["dep:rusttype"]
 gfx = ["dep:gfx-hal", "dep:gfx-auxil", "dep:image"]
+glace = ["dep:glace"]
 input = ["dep:buttons", "windowing"]
 logging = ["dep:console_log", "dep:console_error_panic_hook", "dep:log"]
 math = ["dep:okmath"]
 mesh = []
+gltf = ["dep:gltf"]
 reloading = ["dep:dirty_static", "dep:dymod", "dep:lazy_static", "dep:resource", "dep:serde_yaml", "dep:toml"]
 resources = ["dep:resource"]
 timing = ["dep:wasm-bindgen"]
@@ -48,13 +50,13 @@ opengl = ["gfx-backend-gl"]
 vulkan = ["gfx-backend-vulkan"]
 bypass_spirv_cross = []
 
-wdev = ["everything", "draw_popup"]
+wdev = ["everything", "draw_popup", "glace"]
 dxdev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "dx12"]
 metaldev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "metal"]
 vulkandev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "vulkan"]
 
 [dependencies]
-buttons = { version = "~0.3.1", features = ["winit-support"], optional = true }
+buttons = { git = "https://github.com/mistodon/buttons", branch = "main", features = ["winit"], optional = true }
 dirty_static = { version = "~0.1.1", optional = true }
 edres = { version = "~0.5", optional = true, features = ["experimental-files-enum", "toml-parsing", "yaml-parsing"] }
 gfx-hal = { version = "~0.9.0", optional = true }
@@ -62,12 +64,15 @@ gfx-backend-dx12 = { version = "~0.9.1", optional = true }
 gfx-backend-gl = { version = "~0.9.0", optional = true }
 gfx-backend-metal = { version = "~0.9.1", optional = true }
 gfx-backend-vulkan = { version = "~0.9.0", optional = true }
+glace = { version = "0.2", path = "../glace/glace/glace", optional = true }
+gltf = { version = "~1.0.0", optional = true }
+hvec = { version = "~0.2.0", optional = true }
 image = { version = "~0.24.3", optional = true }
 lazy_static = { version = "~1.4.0", optional = true }
 log = { version = "~0.4.14", optional = true }
 okmath = { git = "https://github.com/mistodon/okmath", branch = "main", optional = true }
 rusttype = { version = "~0.9.2", features = ["gpu_cache"], optional = true }
-serde = { version = "~1.0.140", features = ["derive"] }
+serde = { version = "~1.0.145", features = ["derive"] }
 serde_yaml = { version = "~0.8.24", optional = true }
 texture_packer = { version = "~0.24.0", optional = true }
 toml = { version = "~0.5.9", optional = true }
@@ -81,7 +86,7 @@ gfx-auxil = { version = "~0.10.0", optional = true }
 resource = { version = "~0.5", optional = true, features = ["experimental-resource-list"] }
 rodio = { version = "~0.13.1", optional = true, features = ["flac", "vorbis", "wav", "wasm-bindgen"], default-features = false }
 wasm-bindgen = { version = "~0.2.73", optional = true }
-winit = { version = "~0.24", optional = true, features = ["web-sys"] }
+winit = { version = "~0.26", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dymod = { version = "~0.3", optional = true }

@@ -188,7 +188,7 @@ impl Default for ScaleMode {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct CanvasProperties {
+pub struct CanvasProperties {
     pub physical_canvas_size: [u32; 2],
     pub logical_canvas_size: [u32; 2],
     pub viewport_scissor_rect: ([i16; 2], [i16; 2]),
@@ -227,7 +227,7 @@ impl CanvasConfig {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn canvas_properties(
+    pub fn canvas_properties(
         &self,
         physical_window_size: [u32; 2],
         scale_factor: f64,

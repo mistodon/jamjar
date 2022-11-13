@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::{
-    atlas::Atlas,
-    mesh::{Mesh, MeshIndex},
-};
+use crate::mesh::{Mesh, MeshIndex};
 
 pub struct MeshAtlas<K, V>
 where
@@ -32,15 +29,8 @@ where
             modified: false,
         }
     }
-}
 
-impl<K, V> Atlas<(K::Owned, Mesh<V>), K, MeshIndex, Mesh<V>, MeshIndex> for MeshAtlas<K, V>
-where
-    K: ToOwned + Eq + Hash + ?Sized,
-    K::Owned: Clone + Eq + Hash,
-    V: Copy,
-{
-    fn insert(&mut self, insertion: (K::Owned, Mesh<V>)) {
+    pub fn insert(&mut self, insertion: (K::Owned, Mesh<V>)) {
         let (key, mesh) = insertion;
 
         let v_len = mesh.vertex_count() as u32;
@@ -60,20 +50,7 @@ where
         self.modified = true;
     }
 
-    fn remove_and_invalidate(&mut self, key: &K) {
-        let mut source_meshes = std::mem::replace(&mut self.source_meshes, Default::default());
-        self.backing.clear();
-        self.indices.clear();
-        for (key, mesh) in source_meshes {
-            self.insert((key, mesh));
-        }
-    }
-
-    fn fetch(&self, key: &K) -> MeshIndex {
-        self.indices[key].clone()
-    }
-
-    fn compile_into(&mut self, dest: &mut Mesh<V>) -> Option<MeshIndex> {
+    pub fn compile_into(&mut self, dest: &mut Mesh<V>) -> Option<MeshIndex> {
         if self.modified {
             self.modified = false;
             *dest = self.backing.clone();
@@ -83,7 +60,11 @@ where
         }
     }
 
-    fn modified(&self) -> bool {
+    pub fn fetch(&self, key: &K) -> Option<MeshIndex> {
+        self.indices.get(key).cloned()
+    }
+
+    pub fn modified(&self) -> bool {
         self.modified
     }
 }

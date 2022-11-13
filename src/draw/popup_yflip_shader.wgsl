@@ -1,7 +1,7 @@
 @vertex
 fn vertex_main(vertex: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = push.transform * vertex.position;
+    output.position = push.transform * vertex.position * vec4(1.0, -1.0, 1.0, 1.0);
     output.normal = normalize(push.transform * vertex.normal).xyz;
     output.uv = vertex.uv.xy * (push.uv_offset_scale.zw) + push.uv_offset_scale.xy;
     output.color = vertex.color;

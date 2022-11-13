@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -eu
+set -o pipefail
+
+readonly runflag=${1:-}
+
+if [[ "$runflag" == "run" ]]; then
+    cargo run --features wdev --example draw_popup
+else
+    cargo watch -x "check --features wdev --example draw_popup"
+fi

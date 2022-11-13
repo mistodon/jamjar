@@ -18,9 +18,9 @@ struct GlobalUniforms {
 
 struct LocalUniforms {
     texture_index: u32,
+    sampler_index: u32,
     padding_0: f32,
     padding_1: f32,
-    padding_2: f32,
 };
 
 var<push_constant> push: Push;

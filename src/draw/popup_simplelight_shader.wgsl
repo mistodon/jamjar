@@ -16,5 +16,8 @@ fn fragment_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         vertex.uv
     );
 
-    return (base_color * vertex.color * push.tint) + push.emission;
+    var light_dot = max(0.0, dot(-push.color_a.xyz, vertex.normal));
+    var lighting = vec4(push.color_b.rgb * light_dot, 1.0);
+
+    return (base_color * vertex.color * push.tint * lighting) + push.emission;
 }

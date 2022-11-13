@@ -12,100 +12,15 @@ type LineHeight = f32;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Glyph {
-    pub(crate) font_id: FontId,
     pub(crate) glyph: PositionedGlyph<'static>,
     pub(crate) ch: char,
+    pub(crate) font_id: FontId,
 }
 
 pub struct Font {
+    pub default_size: f32,
     font_id: FontId,
     font: RTFont<'static>,
-    pub default_size: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct Cursor {
-    pos: [f32; 2],
-    original_start_pos: [f32; 2],
-    max_x: f32,
-    prev_glyph: Option<(FontId, GlyphId, LineHeight)>,
-}
-
-impl Cursor {
-    pub const fn pos(&self) -> [f32; 2] {
-        self.pos
-    }
-
-    pub const fn original_start_pos(&self) -> [f32; 2] {
-        self.original_start_pos
-    }
-
-    pub fn end(&self) -> [f32; 2] {
-        let line_height = self.prev_glyph.map(|x| x.2).unwrap_or(0.);
-        [self.pos[0], self.pos[1] + line_height]
-    }
-
-    pub fn span_from<P: Into<[f32; 2]>>(&self, from: P) -> [f32; 2] {
-        let [x0, y0] = from.into();
-        let [x1, y1] = self.end();
-        [x1 - x0, y1 - y0]
-    }
-
-    pub fn span(&self) -> [f32; 2] {
-        self.span_from(self.original_start_pos())
-    }
-
-    pub fn frame(&self) -> Frame {
-        let tl = self.original_start_pos();
-        let [_, h] = self.span();
-        let w = self.max_x - tl[0];
-        Frame::new(tl, [w, h])
-    }
-
-    pub fn newline(&mut self, line_height: f32) {
-        let ox = self.original_start_pos[0];
-        let y = self.pos[1] + line_height;
-        self.pos = [ox, y];
-        self.prev_glyph = None;
-    }
-
-    pub(crate) fn kern(&mut self, font: &RTFont, scale: Scale, font_id: FontId, glyph_id: GlyphId) {
-        if let Some((prev_font, prev_glyph, _)) = self.prev_glyph {
-            if prev_font == font_id {
-                self.pos[0] += font.pair_kerning(scale, prev_glyph, glyph_id);
-                self.max_x = self.max_x.max(self.pos[0]);
-            }
-        }
-    }
-
-    pub(crate) fn advance(
-        &mut self,
-        font_id: FontId,
-        line_height: f32,
-        sf: f32,
-        glyph: &ScaledGlyph,
-    ) {
-        let w = glyph.h_metrics().advance_width;
-        self.prev_glyph = Some((font_id, glyph.id(), line_height));
-        self.pos[0] += w / sf;
-    }
-}
-
-impl Into<[f32; 2]> for Cursor {
-    fn into(self) -> [f32; 2] {
-        self.pos
-    }
-}
-
-impl From<[f32; 2]> for Cursor {
-    fn from(pos: [f32; 2]) -> Self {
-        Cursor {
-            pos,
-            original_start_pos: pos,
-            prev_glyph: None,
-            max_x: pos[0],
-        }
-    }
 }
 
 impl Font {
@@ -120,8 +35,9 @@ impl Font {
         }
     }
 
-    pub fn glyph(&self, ch: char, pos: [f32; 2], size: f32, scale_factor: f64) -> Glyph {
+    pub fn glyph(&self, ch: char, pos: [f32; 2], scale_factor: f64, size: Option<f32>) -> Glyph {
         let sf = scale_factor as f32;
+        let size = size.unwrap_or(self.default_size);
         let scale = Scale {
             x: size * sf,
             y: size * sf,
@@ -130,7 +46,7 @@ impl Font {
             x: pos[0] * sf,
             y: pos[1] * sf,
         };
-        let g = self.font.glyph(ch);
+        let g = self.font.glyph(ch); // TODO: bottleneck
         let g = g.scaled(scale);
         let g = g.positioned(start);
 
@@ -145,10 +61,10 @@ impl Font {
         &self,
         text: S,
         start: [f32; 2],
-        size: f32,
         scale_factor: f64,
+        size: Option<f32>,
     ) -> Vec<Glyph> {
-        let (_cur, glyphs) = self.layout_line_cur(text, start, size, scale_factor);
+        let (_cur, glyphs) = self.layout_line_cur(text, start, scale_factor, size);
         glyphs
     }
 
@@ -156,10 +72,11 @@ impl Font {
         &self,
         text: S,
         start: P,
-        size: f32,
         scale_factor: f64,
+        size: Option<f32>,
     ) -> (Cursor, Vec<Glyph>) {
         let sf = scale_factor as f32;
+        let size = size.unwrap_or(self.default_size);
         let scale = Scale {
             x: size * sf,
             y: size * sf,
@@ -199,14 +116,14 @@ impl Font {
         &self,
         text: S,
         start: P,
-        size: f32,
         scale_factor: f64,
+        size: Option<f32>,
         max_x: f32,
         line_spacing: f32,
         align: Option<f32>,
     ) -> Vec<Glyph> {
         let (_cur, glyphs) =
-            self.layout_wrapped_cur(text, start, size, scale_factor, max_x, line_spacing, align);
+            self.layout_wrapped_cur(text, start, scale_factor, size, max_x, line_spacing, align);
         glyphs
     }
 
@@ -214,8 +131,8 @@ impl Font {
         &self,
         text: S,
         start: P,
-        size: f32,
         scale_factor: f64,
+        size: Option<f32>,
         max_x: f32,
         line_spacing: f32,
         align: Option<f32>,
@@ -223,6 +140,7 @@ impl Font {
         let align = align.unwrap_or(0.);
 
         let sf = scale_factor as f32;
+        let size = size.unwrap_or(self.default_size);
         let scale = Scale {
             x: size * sf,
             y: size * sf,
@@ -329,6 +247,91 @@ impl Font {
         }
 
         (cursor, glyphs)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Cursor {
+    pos: [f32; 2],
+    original_start_pos: [f32; 2],
+    max_x: f32,
+    prev_glyph: Option<(FontId, GlyphId, LineHeight)>,
+}
+
+impl Cursor {
+    pub const fn pos(&self) -> [f32; 2] {
+        self.pos
+    }
+
+    pub const fn original_start_pos(&self) -> [f32; 2] {
+        self.original_start_pos
+    }
+
+    pub fn end(&self) -> [f32; 2] {
+        let line_height = self.prev_glyph.map(|x| x.2).unwrap_or(0.);
+        [self.pos[0], self.pos[1] + line_height]
+    }
+
+    pub fn span_from<P: Into<[f32; 2]>>(&self, from: P) -> [f32; 2] {
+        let [x0, y0] = from.into();
+        let [x1, y1] = self.end();
+        [x1 - x0, y1 - y0]
+    }
+
+    pub fn span(&self) -> [f32; 2] {
+        self.span_from(self.original_start_pos())
+    }
+
+    pub fn frame(&self) -> Frame {
+        let tl = self.original_start_pos();
+        let [_, h] = self.span();
+        let w = self.max_x - tl[0];
+        Frame::new(tl, [w, h])
+    }
+
+    pub fn newline(&mut self, line_height: f32) {
+        let ox = self.original_start_pos[0];
+        let y = self.pos[1] + line_height;
+        self.pos = [ox, y];
+        self.prev_glyph = None;
+    }
+
+    pub(crate) fn kern(&mut self, font: &RTFont, scale: Scale, font_id: FontId, glyph_id: GlyphId) {
+        if let Some((prev_font, prev_glyph, _)) = self.prev_glyph {
+            if prev_font == font_id {
+                self.pos[0] += font.pair_kerning(scale, prev_glyph, glyph_id); // TODO: bottleneck
+                self.max_x = self.max_x.max(self.pos[0]);
+            }
+        }
+    }
+
+    pub(crate) fn advance(
+        &mut self,
+        font_id: FontId,
+        line_height: f32,
+        sf: f32,
+        glyph: &ScaledGlyph,
+    ) {
+        let w = glyph.h_metrics().advance_width; // TODO: bottleneck
+        self.prev_glyph = Some((font_id, glyph.id(), line_height));
+        self.pos[0] += w / sf;
+    }
+}
+
+impl Into<[f32; 2]> for Cursor {
+    fn into(self) -> [f32; 2] {
+        self.pos
+    }
+}
+
+impl From<[f32; 2]> for Cursor {
+    fn from(pos: [f32; 2]) -> Self {
+        Cursor {
+            pos,
+            original_start_pos: pos,
+            prev_glyph: None,
+            max_x: pos[0],
+        }
     }
 }
 
