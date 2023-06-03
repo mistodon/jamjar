@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Range;
@@ -31,11 +32,30 @@ const SAMPLERS: usize = 2;
 const MAX_VERTICES: usize = 65536;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BuiltinOnly {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinImage {
     White,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BuiltinMesh {
+    Quad,
+    Sprite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BuiltinShader {
+    Basic,
+    YFlip,
+    SimpleLight,
+    Debug,
+}
+
 type ImageAssetKey<K> = AssetKey<K, BuiltinImage>;
+type MeshAssetKey<K> = AssetKey<K, BuiltinMesh>;
+type ShaderAssetKey<K> = AssetKey<K, BuiltinShader>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AssetKey<K, B> {
@@ -51,6 +71,30 @@ impl<K: Clone> From<&K> for AssetKey<K, BuiltinImage> {
 
 impl<K> From<BuiltinImage> for AssetKey<K, BuiltinImage> {
     fn from(key: BuiltinImage) -> Self {
+        AssetKey::Builtin(key)
+    }
+}
+
+impl<K: Clone> From<&K> for AssetKey<K, BuiltinShader> {
+    fn from(key: &K) -> Self {
+        AssetKey::Key(key.clone())
+    }
+}
+
+impl<K> From<BuiltinShader> for AssetKey<K, BuiltinShader> {
+    fn from(key: BuiltinShader) -> Self {
+        AssetKey::Builtin(key)
+    }
+}
+
+impl<K: Clone> From<&K> for AssetKey<K, BuiltinMesh> {
+    fn from(key: &K) -> Self {
+        AssetKey::Key(key.clone())
+    }
+}
+
+impl<K> From<BuiltinMesh> for AssetKey<K, BuiltinMesh> {
+    fn from(key: BuiltinMesh) -> Self {
         AssetKey::Builtin(key)
     }
 }
@@ -89,6 +133,19 @@ pub struct Properties {
     pub color_a: [f32; 4],
     pub color_b: [f32; 4],
     pub pixel_texture: bool,
+}
+
+impl Default for Properties {
+    fn default() -> Self {
+        Properties {
+            transform: Mat4::identity().0,
+            tint: color::WHITE,
+            emission: color::TRANS,
+            color_a: [0.; 4],
+            color_b: [0.; 4],
+            pixel_texture: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -156,11 +213,13 @@ impl Ord for DrawCall {
 }
 impl Eq for DrawCall {}
 
-pub struct Renderer<'a, ImageKey>
+pub struct Renderer<'a, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
+    MeshKey: Clone + Eq + Hash,
+    ShaderKey: Clone + Eq + Hash,
 {
-    context: &'a mut DrawContext<ImageKey>,
+    context: &'a mut DrawContext<ImageKey, MeshKey, ShaderKey>,
     clear_color: [f32; 4],
     generic_params: [f32; 4],
     cursor_pos: [f32; 2],
@@ -172,9 +231,11 @@ where
     vp_matrix: Mat4<f32>,
 }
 
-impl<'a, ImageKey> Renderer<'a, ImageKey>
+impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
+    MeshKey: Clone + Eq + Hash,
+    ShaderKey: Clone + Eq + Hash,
 {
     fn render(&mut self) {
         if self.context.image_atlas.modified() {
@@ -480,9 +541,9 @@ where
         let [w, h] = region.size();
         let [w, h] = [w as f32, h as f32];
         self.raw_draw(
-            "yflip",
+            BuiltinShader::YFlip,
             image,
-            "sprite",
+            BuiltinMesh::Sprite,
             Properties {
                 transform: (Mat4::translation([x, y, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
                 tint: color::WHITE,
@@ -512,11 +573,15 @@ where
             let [w, h] = size.0;
             let ([u, v], [us, vs]) = region.uv;
 
-            let mesh_index = self.context.mesh_atlas.fetch("sprite").unwrap();
+            let mesh_index = self
+                .context
+                .mesh_atlas
+                .fetch(&BuiltinMesh::Sprite.into())
+                .unwrap();
 
             self.trans_calls.push(DrawCall {
                 depth,
-                shader_index: self.context.shader_mapping["yflip"],
+                shader_index: self.context.shader_mapping[&BuiltinShader::YFlip.into()],
                 binding_index: self.context.texture_pages - 1,
                 index_range: mesh_index.index_range,
                 vpush: VPush {
@@ -627,18 +692,18 @@ where
 
     fn raw_internal(
         &mut self,
-        shader: &str,
+        shader: ShaderAssetKey<ShaderKey>,
         page: usize,
         sampler_index: usize,
-        mesh: &str,
+        mesh: MeshAssetKey<MeshKey>,
         mut vpush: VPush,
         fpush: FPush,
         transparent_depth: Option<Depth>,
     ) {
-        let shader_index = self.context.shader_mapping[shader];
+        let shader_index = self.context.shader_mapping[&shader];
         let binding_index = page + sampler_index * self.context.texture_pages;
 
-        let mesh_index = self.context.mesh_atlas.fetch(mesh).unwrap();
+        let mesh_index = self.context.mesh_atlas.fetch(&mesh).unwrap();
 
         vpush.transform = (self.projection * self.view * Mat4::from(vpush.transform)).0; // TODO: bottleneck
 
@@ -663,14 +728,18 @@ where
         }
     }
 
-    pub fn raw_draw<K: Into<ImageAssetKey<ImageKey>>>(
+    pub fn raw_draw<I, M, S>(
         &mut self,
-        shader: &str,
-        image: K,
-        mesh: &str,
+        shader: S,
+        image: I,
+        mesh: M,
         properties: Properties,
         transparent_depth: Option<Depth>,
-    ) {
+    ) where
+        I: Into<ImageAssetKey<ImageKey>>,
+        M: Into<MeshAssetKey<MeshKey>>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
+    {
         let image = image.into();
         let sampler_index = if properties.pixel_texture { 1 } else { 0 };
         let (page, region) = self.context.image_atlas.fetch(&image).unwrap();
@@ -690,10 +759,10 @@ where
             color_b: properties.color_b,
         };
         self.raw_internal(
-            shader,
+            shader.into(),
             page,
             sampler_index,
-            mesh,
+            mesh.into(),
             vpush,
             fpush,
             transparent_depth,
@@ -701,27 +770,66 @@ where
     }
 }
 
-impl<'a, ImageKey> Renderer<'a, ImageKey>
+impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash + glace::Asset<Value = image::RgbaImage>,
+    MeshKey: Clone + Eq + Hash,
+    ShaderKey: Clone + Eq + Hash,
 {
-    pub fn sprite(
-        &mut self,
-        image: &ImageKey,
-        pos: [f32; 2],
-        depth: Depth,
-        pixelly: bool,
-    ) -> Frame {
-        if self.context.image_atlas.fetch(&image.into()).is_none() {
-            self.context.load_image(image.clone(), image.value());
+    pub fn sprite<I>(&mut self, image: I, pos: [f32; 2], depth: Depth, pixelly: bool) -> Frame
+    where
+        I: Into<ImageAssetKey<ImageKey>>,
+    {
+        let image = image.into();
+        if let AssetKey::Key(key) = &image {
+            if self.context.image_atlas.fetch(&image).is_none() {
+                self.context.load_image(key.clone(), key.value());
+            }
         }
         self.stored_sprite(image, pos, depth, pixelly)
     }
 }
 
-impl<'a, ImageKey> Drop for Renderer<'a, ImageKey>
+impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
+where
+    ImageKey: Clone + Eq + Hash + glace::Asset<Value = image::RgbaImage>,
+    MeshKey: Clone + Eq + Hash + glace::Asset<Value = Cow<'static, [u8]>>,
+    ShaderKey: Clone + Eq + Hash,
+{
+    pub fn draw<I, M, S>(
+        &mut self,
+        shader: S,
+        image: I,
+        mesh: M,
+        properties: Properties,
+        transparent_depth: Option<Depth>,
+    ) where
+        I: Into<ImageAssetKey<ImageKey>>,
+        M: Into<MeshAssetKey<MeshKey>>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
+    {
+        let image = image.into();
+        if let AssetKey::Key(key) = &image {
+            if self.context.image_atlas.fetch(&image).is_none() {
+                self.context.load_image(key.clone(), key.value());
+            }
+        }
+        let mesh = mesh.into();
+        if let AssetKey::Key(key) = &mesh {
+            if self.context.mesh_atlas.fetch(&mesh).is_none() {
+                self.context
+                    .load_mesh(key.clone(), crate::mesh::load_glb(&key.value()).unwrap());
+            }
+        }
+        self.raw_draw(shader, image, mesh, properties, transparent_depth)
+    }
+}
+
+impl<'a, ImageKey, MeshKey, ShaderKey> Drop for Renderer<'a, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
+    MeshKey: Clone + Eq + Hash,
+    ShaderKey: Clone + Eq + Hash,
 {
     fn drop(&mut self) {
         self.render();
@@ -729,9 +837,11 @@ where
 }
 
 #[allow(dead_code)]
-pub struct DrawContext<ImageKey>
+pub struct DrawContext<ImageKey = BuiltinOnly, MeshKey = BuiltinOnly, ShaderKey = BuiltinOnly>
 where
     ImageKey: Clone + Eq + Hash,
+    MeshKey: Clone + Eq + Hash,
+    ShaderKey: Clone + Eq + Hash,
 {
     canvas_config: CanvasConfig,
     texture_size: u32,
@@ -761,18 +871,20 @@ where
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 
-    mesh_atlas: MeshAtlas<str, Vertex>,
+    mesh_atlas: MeshAtlas<MeshAssetKey<MeshKey>, Vertex>,
     image_atlas: ImageArrayAtlas<'static, ImageAssetKey<ImageKey>>,
     image_atlas_images: Vec<RgbaImage>,
     font_atlas: FontAtlas,
     font_atlas_image: RgbaImage,
-    shader_mapping: HashMap<String, usize>,
+    shader_mapping: HashMap<ShaderAssetKey<ShaderKey>, usize>,
     pipelines: Vec<[wgpu::RenderPipeline; 2]>,
 }
 
-impl<ImageKey> DrawContext<ImageKey>
+impl<ImageKey, MeshKey, ShaderKey> DrawContext<ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
+    MeshKey: Clone + Eq + Hash,
+    ShaderKey: Clone + Eq + Hash,
 {
     pub async fn new(
         window: &Window,
@@ -1120,13 +1232,21 @@ where
             indices: vec![0, 1, 2, 1, 3, 2],
         };
 
-        result.load_shader("builtin", BUILTIN_SHADER, false);
-        result.load_shader("simplelight", SIMPLELIGHT_SHADER, false);
-        result.load_shader("yflip", YFLIP_SHADER, true);
-        result.load_shader("__debug", DEBUG_SHADER, false);
+        result.load_shader_internal(
+            AssetKey::Builtin(BuiltinShader::Basic),
+            BUILTIN_SHADER,
+            false,
+        );
+        result.load_shader_internal(
+            AssetKey::Builtin(BuiltinShader::SimpleLight),
+            SIMPLELIGHT_SHADER,
+            false,
+        );
+        result.load_shader_internal(AssetKey::Builtin(BuiltinShader::YFlip), YFLIP_SHADER, true);
+        result.load_shader_internal(AssetKey::Builtin(BuiltinShader::Debug), DEBUG_SHADER, false);
 
-        result.load_mesh("quad", quad_mesh);
-        result.load_mesh("sprite", sprite_mesh);
+        result.load_mesh_internal(BuiltinMesh::Quad, quad_mesh);
+        result.load_mesh_internal(BuiltinMesh::Sprite, sprite_mesh);
 
         result.load_image_internal(BuiltinImage::White, {
             let bytes = include_bytes!("../../assets/images/white.png");
@@ -1196,11 +1316,12 @@ where
         (pos[0] >= 0. && pos[0] <= cw as f32 && pos[1] >= 0. && pos[1] <= ch as f32).then(|| pos)
     }
 
-    pub fn load_mesh<N>(&mut self, name: N, mesh: Mesh<Vertex>)
-    where
-        N: AsRef<str>,
-    {
-        self.mesh_atlas.insert((name.as_ref().to_owned(), mesh));
+    pub fn load_mesh(&mut self, key: MeshKey, mesh: Mesh<Vertex>) {
+        self.mesh_atlas.insert((AssetKey::Key(key), mesh));
+    }
+
+    fn load_mesh_internal(&mut self, key: BuiltinMesh, mesh: Mesh<Vertex>) {
+        self.mesh_atlas.insert((AssetKey::Builtin(key), mesh));
     }
 
     pub fn load_image(&mut self, key: ImageKey, image: RgbaImage) {
@@ -1211,11 +1332,19 @@ where
         self.image_atlas.insert(AssetKey::Builtin(key), image);
     }
 
-    pub fn load_shader<N, S>(&mut self, name: N, source: S, y_flipped: bool)
+    pub fn load_shader<S>(&mut self, key: ShaderKey, source: S, y_flipped: bool)
     where
-        N: AsRef<str>,
         S: AsRef<str>,
     {
+        self.load_shader_internal(AssetKey::Key(key), source.as_ref(), y_flipped)
+    }
+
+    fn load_shader_internal(
+        &mut self,
+        name: ShaderAssetKey<ShaderKey>,
+        source: &str,
+        y_flipped: bool,
+    ) {
         let vertex_attributes = wgpu::vertex_attr_array![
             0 => Float32x4,
             1 => Float32x4,
@@ -1230,7 +1359,7 @@ where
         };
 
         let mut shader_source = SHADER_HEADER.to_owned();
-        shader_source.push_str(source.as_ref());
+        shader_source.push_str(source);
 
         let shader = self
             .device
@@ -1308,8 +1437,7 @@ where
             });
 
         let shader_index = self.pipelines.len();
-        self.shader_mapping
-            .insert(name.as_ref().to_owned(), shader_index);
+        self.shader_mapping.insert(name, shader_index);
         self.pipelines.push([opaque_pipeline, trans_pipeline]);
     }
 
@@ -1375,7 +1503,7 @@ where
         clear_color: [f32; 4],
         cursor_pos: [f32; 2],
         generic_params: [f32; 4],
-    ) -> Renderer<ImageKey> {
+    ) -> Renderer<ImageKey, MeshKey, ShaderKey> {
         self.prepare_for_frame();
 
         Renderer {

@@ -1,7 +1,7 @@
 use jamjar::{
     color,
     draw::{
-        popup::{BuiltinImage, Properties},
+        popup::{BuiltinImage, BuiltinShader, Properties},
         D,
     },
     input::WinitMouse,
@@ -27,15 +27,12 @@ async fn run() {
 
     let canvas_config = jamjar::draw::CanvasConfig::set_scaled(resolution);
     let mut context =
-        jamjar::draw::popup::DrawContext::<Image>::new(&window, canvas_config, 2048, 1)
+        jamjar::draw::popup::DrawContext::<Image, Mesh>::new(&window, canvas_config, 2048, 1)
             .await
             .unwrap();
 
     use glace::BytesAsset;
     let font = jamjar::font::Font::new(Font::Chocolate11.bytes().into_owned(), 11.);
-
-    let cube = jamjar::mesh::load_obj_or_whatever(&Mesh::Cube.bytes()).unwrap();
-    context.load_mesh("cube", cube);
 
     let mut clock = jamjar::timing::RealClock::new_now();
     let start = clock.now();
@@ -84,19 +81,17 @@ async fn run() {
                 });
 
                 ren.perspective_3d(1.0);
-                ren.raw_draw(
-                    "simplelight",
+                ren.draw(
+                    BuiltinShader::SimpleLight,
                     BuiltinImage::White,
-                    "cube",
+                    &Mesh::Cube,
                     Properties {
                         transform: (Mat4::translation([0., -0.7, 2.])
                             * matrix::axis_rotation([0., 1., 0.], t as f32))
                         .0,
-                        tint: color::WHITE,
-                        emission: color::TRANS,
                         color_a: vec4(1., -1., 1., 0.).norm_zero().0,
                         color_b: color::WHITE,
-                        pixel_texture: false,
+                        ..Default::default()
                     },
                     None,
                 );

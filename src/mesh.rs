@@ -57,32 +57,38 @@ impl<V> Mesh<V> {
 
 #[cfg(feature = "gltf")]
 mod gltf {
+    use std::borrow::Cow;
+
     use crate::math::*;
 
-    pub fn load_obj_or_whatever(
+    pub fn load_glb(
         obj_file: &[u8],
     ) -> gltf::Result<crate::mesh::Mesh<crate::draw::popup::Vertex>> {
         let (doc, buffers, _images) = gltf::import_slice(obj_file)?;
         let mesh_primitives = doc.meshes().next().unwrap().primitives().next().unwrap();
 
         let positions = attribute_view::<Vec3<f32>>(
-            &mesh_primitives.get(&gltf::Semantic::Positions).unwrap(),
+            0,
+            &mesh_primitives.get(&gltf::Semantic::Positions),
             &buffers,
         );
         let normals = attribute_view::<Vec3<f32>>(
-            &mesh_primitives.get(&gltf::Semantic::Normals).unwrap(),
+            positions.len(),
+            &mesh_primitives.get(&gltf::Semantic::Normals),
             &buffers,
         );
         let uvs = attribute_view::<Vec2<f32>>(
-            &mesh_primitives.get(&gltf::Semantic::TexCoords(0)).unwrap(),
+            positions.len(),
+            &mesh_primitives.get(&gltf::Semantic::TexCoords(0)),
             &buffers,
         );
         let colors = attribute_view::<Vec4<u16>>(
-            &mesh_primitives.get(&gltf::Semantic::Colors(0)).unwrap(),
+            positions.len(),
+            &mesh_primitives.get(&gltf::Semantic::Colors(0)),
             &buffers,
         );
 
-        let indices = attribute_view::<u16>(&mesh_primitives.indices().unwrap(), &buffers).to_vec();
+        let indices = attribute_view::<u16>(0, &mesh_primitives.indices(), &buffers).to_vec();
 
         let flip_z = vec3(1., 1., -1.);
         let vertices: Vec<crate::draw::popup::Vertex> = (0..positions.len())
@@ -98,20 +104,28 @@ mod gltf {
         Ok(crate::mesh::Mesh { vertices, indices })
     }
 
-    fn attribute_view<'a, T>(
-        accessor: &gltf::Accessor<'a>,
+    fn attribute_view<'a, T: Default + Clone>(
+        fallback_length: usize,
+        accessor: &Option<gltf::Accessor<'a>>,
         buffers: &[gltf::buffer::Data],
-    ) -> &'a [T] {
-        let view = accessor.view().expect("Cannot handle sparse attributes");
-        let expected_length = accessor.size() * accessor.count();
-        let buffer = &buffers[view.buffer().index()];
-        let bytes = &buffer[view.offset()..(view.offset() + view.length())];
+    ) -> Cow<'a, [T]> {
+        match accessor {
+            None => {
+                Cow::Owned(vec![T::default(); fallback_length])
+            }
+            Some(accessor) => {
+                let view = accessor.view().expect("Cannot handle sparse attributes");
+                let expected_length = accessor.size() * accessor.count();
+                let buffer = &buffers[view.buffer().index()];
+                let bytes = &buffer[view.offset()..(view.offset() + view.length())];
 
-        assert!(std::mem::size_of::<T>() * accessor.count() == expected_length);
-        assert!(bytes.len() == expected_length);
+                assert!(std::mem::size_of::<T>() * accessor.count() == expected_length);
+                assert!(bytes.len() == expected_length);
 
-        unsafe {
-            std::slice::from_raw_parts(bytes.as_ptr() as _, bytes.len() / std::mem::size_of::<T>())
+                Cow::Borrowed(unsafe {
+                    std::slice::from_raw_parts(bytes.as_ptr() as _, bytes.len() / std::mem::size_of::<T>())
+                })
+            }
         }
     }
 }

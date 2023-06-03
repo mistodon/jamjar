@@ -207,7 +207,8 @@ checksum = "63396b8a4b9de3f4fdfb320ab6080762242f66a8ef174c49d8e19b674db4cdbe"
 [[package]]
 name = "buttons"
 version = "0.4.0"
-source = "git+https://github.com/mistodon/buttons?branch=main#0fee2b11e4d846775418ee0c2b06e282d02adc4c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef2b87545cb2561f0112365d1648d28873114b23d5948bd9a4fd0b683e7438ca"
 dependencies = [
  "winit",
 ]

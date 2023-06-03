@@ -3,7 +3,6 @@
 Must:
 
 Should:
-- [ ] Font/mesh etc. also compile just-in-time and only auto-load if not already in atlas
 - [ ] Only upload changed portions of textures
 
 Could:
