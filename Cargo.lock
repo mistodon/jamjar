@@ -1167,7 +1167,6 @@ dependencies = [
  "ignore",
  "image 0.24.3",
  "indexmap",
- "lazy_static",
  "parking_lot 0.12.1",
  "serde",
  "serde_json",

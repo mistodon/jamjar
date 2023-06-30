@@ -110,9 +110,7 @@ mod gltf {
         buffers: &[gltf::buffer::Data],
     ) -> Cow<'a, [T]> {
         match accessor {
-            None => {
-                Cow::Owned(vec![T::default(); fallback_length])
-            }
+            None => Cow::Owned(vec![T::default(); fallback_length]),
             Some(accessor) => {
                 let view = accessor.view().expect("Cannot handle sparse attributes");
                 let expected_length = accessor.size() * accessor.count();
@@ -123,7 +121,10 @@ mod gltf {
                 assert!(bytes.len() == expected_length);
 
                 Cow::Borrowed(unsafe {
-                    std::slice::from_raw_parts(bytes.as_ptr() as _, bytes.len() / std::mem::size_of::<T>())
+                    std::slice::from_raw_parts(
+                        bytes.as_ptr() as _,
+                        bytes.len() / std::mem::size_of::<T>(),
+                    )
                 })
             }
         }
