@@ -12,9 +12,12 @@ type LineHeight = f32;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Glyph {
-    pub(crate) glyph: PositionedGlyph<'static>,
-    pub(crate) ch: char,
-    pub(crate) font_id: FontId,
+    // pub(crate) glyph: PositionedGlyph<'static>,
+    // pub(crate) ch: char,
+    // pub(crate) font_id: FontId,
+    pub glyph: PositionedGlyph<'static>,
+    pub ch: char,
+    pub font_id: FontId,
 }
 
 pub struct Font {

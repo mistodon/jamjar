@@ -1,8 +1,8 @@
 use jamjar::{
     color,
     draw::{
-        popup::{BuiltinImage, BuiltinShader, Properties},
         D,
+        popup::{BuiltinImage, BuiltinShader, Properties},
     },
     input::WinitMouse,
     math::*,
@@ -16,7 +16,15 @@ glace::glace! {
 use assets::prelude::*;
 
 fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
     pollster::block_on(run());
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+        wasm_bindgen_futures::spawn_local(run());
+    }
 }
 
 async fn run() {
@@ -24,6 +32,18 @@ async fn run() {
 
     let (window, event_loop) =
         jamjar::windowing::window_and_event_loop("Window Test", [512, 256]).unwrap();
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::WindowExtWebSys;
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas())).ok()
+            })
+            .expect("failed to add canvas to document body");
+    }
 
     let canvas_config = jamjar::draw::CanvasConfig::set_scaled(resolution);
     let mut context =

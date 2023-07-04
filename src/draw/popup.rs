@@ -29,7 +29,13 @@ const SIMPLELIGHT_SHADER: &'static str = include_str!("popup_simplelight_shader.
 const DEBUG_SHADER: &'static str = include_str!("popup_debug_shader.wgsl");
 
 const SAMPLERS: usize = 2;
+
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_VERTICES: usize = 65536;
+
+// For some reason, WebGL doesn't support more than 16279 here(???)
+#[cfg(target_arch = "wasm32")]
+const MAX_VERTICES: usize = 10000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinOnly {}
@@ -249,8 +255,8 @@ where
                     &image,
                     wgpu::ImageDataLayout {
                         offset: 0,
-                        bytes_per_row: std::num::NonZeroU32::new(4 * self.context.texture_size),
-                        rows_per_image: std::num::NonZeroU32::new(self.context.texture_size),
+                        bytes_per_row: Some(4 * self.context.texture_size),
+                        rows_per_image: Some(self.context.texture_size),
                     },
                     wgpu::Extent3d {
                         width: self.context.texture_size,
@@ -440,8 +446,8 @@ where
                     &self.context.font_atlas_image,
                     wgpu::ImageDataLayout {
                         offset: 0,
-                        bytes_per_row: std::num::NonZeroU32::new(4 * self.context.texture_size),
-                        rows_per_image: std::num::NonZeroU32::new(self.context.texture_size),
+                        bytes_per_row: Some(4 * self.context.texture_size),
+                        rows_per_image: Some(self.context.texture_size),
                     },
                     wgpu::Extent3d {
                         width: self.context.texture_size,
@@ -893,12 +899,12 @@ where
         texture_pages: usize,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let texture_pages = texture_pages + 1; // Font texture
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
-        let surface = unsafe { instance.create_surface(&window) };
+        let instance = wgpu::Instance::default();
+        let surface = unsafe { instance.create_surface(&window).unwrap() };
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
                 compatible_surface: Some(&surface),
             })
@@ -921,7 +927,8 @@ where
             )
             .await?;
 
-        let swapchain_format = surface.get_supported_formats(&adapter)[0];
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = swapchain_capabilities.formats[0];
 
         let size = window.inner_size();
         let surface_config = wgpu::SurfaceConfiguration {
@@ -930,6 +937,8 @@ where
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![swapchain_format],
         };
         let scale_factor = window.scale_factor();
 
@@ -1034,6 +1043,7 @@ where
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     label: None,
+                    view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
                 });
 
                 let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1457,6 +1467,7 @@ where
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[wgpu::TextureFormat::Depth32Float],
             });
 
             let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());

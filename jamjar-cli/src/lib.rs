@@ -69,11 +69,12 @@ pub struct WebBuildConfig {
     pub app_root: Option<PathBuf>,
     pub app_name: Option<String>,
     pub bin_name: Option<String>,
+    pub example: Option<String>,
     pub output_dir: PathBuf,
     pub web_includes: PathBuf,
     pub features: Vec<String>,
     pub profile: String,
-    pub bypass_spirv_cross: bool,
+    pub include_spirv_cross: bool,
 }
 
 struct AppConfig<'a> {
@@ -382,7 +383,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         .to_owned()
         .unwrap_or_else(|| manifest.package.name.clone());
 
-    let final_bin_name = config.bin_name.as_ref().unwrap_or(&manifest.package.name);
+    let final_bin_name = config.example.as_ref().unwrap_or(config.bin_name.as_ref().unwrap_or(&manifest.package.name));
 
     std::fs::create_dir_all(&config.output_dir)
         .map_err(|e| JamjarError::io(e, "Failed to create output directory."))?;
@@ -392,6 +393,7 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
     {
         let mut cmd = Command::new("cargo");
         cmd.current_dir(&cwd)
+            .env("RUSTFLAGS", "--cfg=web_sys_unstable_apis")
             .arg("build")
             .args(&["--color", "always"])
             .arg("--profile")
@@ -402,6 +404,9 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         if let Some(bin_name) = &config.bin_name {
             cmd.arg("--bin");
             cmd.arg(bin_name);
+        } else if let Some(example) = &config.example {
+            cmd.arg("--example");
+            cmd.arg(example);
         }
 
         if !config.features.is_empty() {
@@ -423,7 +428,10 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         let mut wasm_path = cwd.clone();
         wasm_path.push("target");
         wasm_path.push("wasm32-unknown-unknown");
-        wasm_path.push(profile);
+        wasm_path.push(if profile == "dev" { "debug" } else { profile });
+        if config.example.is_some() {
+            wasm_path.push("examples");
+        }
         wasm_path.push(format!("{}.wasm", &final_bin_name));
 
         let mut cmd = Command::new("wasm-bindgen");
@@ -462,10 +470,10 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             env!("CARGO_MANIFEST_DIR"),
             "/templates/index_spirv.html"
         ));
-        let template = if config.bypass_spirv_cross {
-            no_spirv_template
-        } else {
+        let template = if config.include_spirv_cross {
             spirv_template
+        } else {
+            no_spirv_template
         };
 
         let (inline_js, inline_css, onload_js) = {
@@ -509,11 +517,11 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
             .map_err(|e| JamjarError::io(e, "Failed to write index.html"))?;
     }
 
-    let spirv_js = include_str!("../ext/spirv_cross/spirv_cross_wrapper_glsl.js");
-    let spirv_wasm = include_bytes!("../ext/spirv_cross/spirv_cross_wrapper_glsl.wasm");
-
-    if !config.bypass_spirv_cross {
+    if config.include_spirv_cross {
         println!("Copying spirv_cross scripts:");
+
+        let spirv_js = include_str!("../ext/spirv_cross/spirv_cross_wrapper_glsl.js");
+        let spirv_wasm = include_bytes!("../ext/spirv_cross/spirv_cross_wrapper_glsl.wasm");
 
         let mut js_path = config.output_dir.clone();
         js_path.push("spirv_cross_wrapper_glsl.js");

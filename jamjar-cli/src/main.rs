@@ -49,6 +49,10 @@ struct WebBuildCmd {
     #[structopt(long = "bin_name", short = "b")]
     bin_name: Option<String>,
 
+    /// The name of the example to build, if building an example.
+    #[structopt(long = "example")]
+    example: Option<String>,
+
     /// The directory to put the packaged archive into.
     #[structopt(
         long = "output_dir",
@@ -69,9 +73,9 @@ struct WebBuildCmd {
     #[structopt(long = "web-includes", short = "w", default_value = "./web")]
     web_includes: PathBuf,
 
-    /// Use this flag to skip packaging spirv_cross scripts.
+    /// Use this flag to package spirv_cross scripts.
     #[structopt(long)]
-    bypass_spirv_cross: bool,
+    include_spirv_cross: bool,
 }
 
 /// A simple, opinionated tool for packaging Rust apps (mostly game jam games) for different platforms
@@ -124,22 +128,24 @@ fn web_build(web_build_cmd: WebBuildCmd) {
         app_root,
         app_name,
         bin_name,
+        example,
         output_dir,
         features,
         profile,
         web_includes,
-        bypass_spirv_cross,
+        include_spirv_cross,
     } = web_build_cmd;
 
     let config = WebBuildConfig {
         app_root,
         app_name,
         bin_name,
+        example,
         output_dir,
         features,
         profile,
         web_includes,
-        bypass_spirv_cross,
+        include_spirv_cross,
     };
 
     match jamjar_cli::web_build(&config) {

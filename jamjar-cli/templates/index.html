@@ -18,13 +18,8 @@
   </head>
   <body>
     <script type="module">
-      import * as {{ bin_name }} from './{{ bin_name }}.js';
-
-      window.addEventListener("load", () => {
-        {{ bin_name }}.default('./{{ bin_name }}_bg.wasm').then(null, () => {
-          {{ onload_js }}
-        });
-      });
+      import init from './{{ bin_name }}.js';
+      init();
     </script>
   </body>
 </html>
