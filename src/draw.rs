@@ -10,6 +10,9 @@ pub mod sloth;
 #[cfg(feature = "draw_popup")]
 pub mod popup;
 
+#[cfg(feature = "draw_cherry")]
+pub mod cherry;
+
 pub mod backend {
     #[cfg(feature = "dx12")]
     pub type Dx12 = gfx_backend_dx12::Backend;

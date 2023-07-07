@@ -1,5 +1,14 @@
 use std::ops::Range;
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct Vertex {
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+    pub uv: [f32; 4],
+    pub color: [f32; 4],
+}
+
 #[derive(Debug, Clone)]
 pub struct MeshIndex {
     pub vertex_range: Range<u32>,
@@ -61,9 +70,11 @@ mod gltf {
 
     use crate::math::*;
 
+    use super::Vertex;
+
     pub fn load_glb(
         obj_file: &[u8],
-    ) -> gltf::Result<crate::mesh::Mesh<crate::draw::popup::Vertex>> {
+    ) -> gltf::Result<crate::mesh::Mesh<Vertex>> {
         let (doc, buffers, _images) = gltf::import_slice(obj_file)?;
         let mesh_primitives = doc.meshes().next().unwrap().primitives().next().unwrap();
 
@@ -91,9 +102,9 @@ mod gltf {
         let indices = attribute_view::<u16>(0, &mesh_primitives.indices(), &buffers).to_vec();
 
         let flip_z = vec3(1., 1., -1.);
-        let vertices: Vec<crate::draw::popup::Vertex> = (0..positions.len())
+        let vertices: Vec<Vertex> = (0..positions.len())
             .into_iter()
-            .map(|i| crate::draw::popup::Vertex {
+            .map(|i| Vertex {
                 position: (positions[i] * flip_z).extend(1.).0,
                 normal: (normals[i] * flip_z).extend(0.).0,
                 uv: uvs[i].extend(0.).extend(0.).0,

@@ -22,11 +22,11 @@ use crate::{
     },
 };
 
-const SHADER_HEADER: &'static str = include_str!("popup_shaders/popup_shader_header.wgsl");
-const BUILTIN_SHADER: &'static str = include_str!("popup_shaders/popup_builtin_shader.wgsl");
-const YFLIP_SHADER: &'static str = include_str!("popup_shaders/popup_yflip_shader.wgsl");
-const SIMPLELIGHT_SHADER: &'static str = include_str!("popup_shaders/popup_simplelight_shader.wgsl");
-const DEBUG_SHADER: &'static str = include_str!("popup_shaders/popup_debug_shader.wgsl");
+const SHADER_HEADER: &'static str = include_str!("cherry_shaders/header.wgsl");
+const BUILTIN_SHADER: &'static str = include_str!("cherry_shaders/builtin.wgsl");
+const YFLIP_SHADER: &'static str = include_str!("cherry_shaders/yflip.wgsl");
+const SIMPLE_SHADER: &'static str = include_str!("cherry_shaders/simple.wgsl");
+const LIT_SHADER: &'static str = include_str!("cherry_shaders/lit.wgsl");
 
 const SAMPLERS: usize = 2;
 
@@ -55,8 +55,8 @@ pub enum BuiltinMesh {
 pub enum BuiltinShader {
     Basic,
     YFlip,
-    SimpleLight,
-    Debug,
+    Simple,
+    Lit,
 }
 
 type ImageAssetKey<K> = AssetKey<K, BuiltinImage>;
@@ -105,51 +105,64 @@ impl<K> From<BuiltinMesh> for AssetKey<K, BuiltinMesh> {
     }
 }
 
+struct PipelineEntry {
+    layout: wgpu::PipelineLayout,
+    opaque: wgpu::RenderPipeline,
+    trans: wgpu::RenderPipeline,
+    push_type: std::any::TypeId,
+    _push_size: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
-struct VPush {
+struct BasePush {
     transform: [[f32; 4]; 4],
     uv_offset_scale: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
-struct FPush {
-    tint: [f32; 4],
-    emission: [f32; 4],
-    color_a: [f32; 4],
-    color_b: [f32; 4],
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct Properties {
-    pub transform: [[f32; 4]; 4],
+pub struct BasicPush {
     pub tint: [f32; 4],
     pub emission: [f32; 4],
-    pub color_a: [f32; 4],
-    pub color_b: [f32; 4],
-    pub pixel_texture: bool,
 }
 
-impl Default for Properties {
+impl Default for BasicPush {
     fn default() -> Self {
-        Properties {
-            transform: Mat4::identity().0,
+        BasicPush {
             tint: color::WHITE,
             emission: color::TRANS,
-            color_a: [0.; 4],
-            color_b: [0.; 4],
-            pixel_texture: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct LitPush {
+    pub tint: [f32; 4],
+    pub emission: [f32; 4],
+    pub ambient: [f32; 4],
+    pub light_dir: [f32; 4],
+    pub light_col: [f32; 4],
+}
+
+impl Default for LitPush {
+    fn default() -> Self {
+        LitPush {
+            tint: color::WHITE,
+            emission: color::TRANS,
+            ambient: color::BLACK,
+            light_dir: [0., -1., 0., 0.],
+            light_col: color::WHITE,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct GlobalUniforms {
+struct GlobalUniforms {
     view_vec: [f32; 4],
-    generic_params: [f32; 4],
+    params: [f32; 4],
     pixel_size: [f32; 2],
     canvas_size: [f32; 2],
     texel_size: [f32; 2],
@@ -158,11 +171,9 @@ pub struct GlobalUniforms {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct LocalUniforms {
-    texture_index: u32,
-    padding_0: f32,
-    padding_1: f32,
-    padding_2: f32,
+struct TexturePage {
+    index: u32,
+    padding: [f32; 3],
 }
 
 struct GlyphCtx {
@@ -172,7 +183,7 @@ struct GlyphCtx {
     vp_matrix: Mat4<f32>,
 }
 
-fn push_constant_bytes<T>(t: &T) -> &[u8] {
+fn push_constant_bytes<T: 'static>(t: &T) -> &[u8] {
     unsafe {
         let p = t as *const _ as *const u8;
         let size = std::mem::size_of::<T>();
@@ -186,8 +197,7 @@ struct DrawCall {
     shader_index: usize,
     binding_index: usize,
     index_range: Range<u32>,
-    vpush: VPush,
-    fpush: FPush,
+    push_range: Range<usize>,
 }
 
 impl PartialOrd for DrawCall {
@@ -226,6 +236,7 @@ where
     projection: Mat4<f32>,
     view: Mat4<f32>,
     vp_matrix: Mat4<f32>,
+    push_constants: Vec<u8>,
 }
 
 impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
@@ -288,7 +299,7 @@ where
         let canvas_size = Vec2::from(canvas_properties.logical_canvas_size).as_f32();
         let globals = GlobalUniforms {
             view_vec: (self.view * vec4(0., 0., -1., 0.)).0,
-            generic_params: Vec4::from(self.generic_params).as_f32().0,
+            params: Vec4::from(self.generic_params).as_f32().0,
             pixel_size: (vec2(2., 2.) / canvas_size).0,
             canvas_size: canvas_size.0,
             texel_size: [1. / self.context.texture_size as f32; 2],
@@ -382,11 +393,11 @@ where
 
             for call in calls {
                 if active_pipeline != Some(call.shader_index) {
-                    let index = match opaque {
-                        true => 0,
-                        false => 1,
+                    let entry = &self.context.pipelines[call.shader_index];
+                    let pipeline = match opaque {
+                        true => &entry.opaque,
+                        false => &entry.trans,
                     };
-                    let pipeline = &self.context.pipelines[call.shader_index][index];
                     pass.set_pipeline(pipeline);
                     active_pipeline = Some(call.shader_index);
                 }
@@ -397,15 +408,9 @@ where
                 }
 
                 pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
+                    wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     0,
-                    push_constant_bytes(&call.vpush),
-                );
-                let push_offset = std::mem::size_of::<VPush>() as u32;
-                pass.set_push_constants(
-                    wgpu::ShaderStages::FRAGMENT,
-                    push_offset,
-                    push_constant_bytes(&call.fpush),
+                    &self.push_constants[call.push_range.clone()],
                 );
 
                 pass.draw_indexed(call.index_range.clone(), 0, 0..1);
@@ -532,25 +537,20 @@ where
         image: K,
         pos: [f32; 2],
         depth: Depth,
-        pixelly: bool,
+        pixel_texture: bool,
     ) -> Frame {
         let image = image.into();
         let (_page, region) = self.context.image_atlas.fetch(&image).unwrap();
         let [x, y] = pos;
         let [w, h] = region.size();
         let [w, h] = [w as f32, h as f32];
-        self.raw_draw(
+        self.stored_draw(
             BuiltinShader::YFlip,
             image,
             BuiltinMesh::Sprite,
-            Properties {
-                transform: (Mat4::translation([x, y, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
-                tint: color::WHITE,
-                emission: color::TRANS,
-                color_a: color::TRANS,
-                color_b: color::TRANS,
-                pixel_texture: pixelly,
-            },
+            (Mat4::translation([x, y, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
+            BasicPush::default(),
+            pixel_texture,
             Some(depth),
         );
         Anchor::from([x, y]).frame([w, h])
@@ -578,24 +578,30 @@ where
                 .fetch(&BuiltinMesh::Sprite.into())
                 .unwrap();
 
+            let base_push = BasePush {
+                transform: (vp_matrix
+                            * Mat4::translation([x, y, 0.])
+                            * Mat4::scale([w, h, 1., 1.]))
+                    .0, // TODO: bottleneck
+                uv_offset_scale: [u, v, us, vs],
+            };
+            let push = BasicPush {
+                tint,
+                emission: color::TRANS,
+            };
+            let start_index = self.push_constants.len();
+            let base_push_bytes = push_constant_bytes(&base_push);
+            self.push_constants.extend_from_slice(base_push_bytes);
+            let push_bytes = push_constant_bytes(&push);
+            self.push_constants.extend_from_slice(push_bytes);
+            let end_index = self.push_constants.len();
+
             self.trans_calls.push(DrawCall {
                 depth,
                 shader_index: self.context.shader_mapping[&BuiltinShader::YFlip.into()],
                 binding_index: self.context.texture_pages - 1,
                 index_range: mesh_index.index_range,
-                vpush: VPush {
-                    transform: (vp_matrix
-                        * Mat4::translation([x, y, 0.])
-                        * Mat4::scale([w, h, 1., 1.]))
-                    .0, // TODO: bottleneck
-                    uv_offset_scale: [u, v, us, vs],
-                },
-                fpush: FPush {
-                    tint,
-                    emission: color::TRANS,
-                    color_a: color::TRANS,
-                    color_b: color::TRANS,
-                },
+                push_range: start_index .. end_index,
             });
         }
     }
@@ -689,22 +695,34 @@ where
         }
     }
 
-    fn raw_internal(
+    fn draw_internal<P: 'static>(
         &mut self,
         shader: ShaderAssetKey<ShaderKey>,
         page: usize,
         sampler_index: usize,
         mesh: MeshAssetKey<MeshKey>,
-        mut vpush: VPush,
-        fpush: FPush,
+        mut base_push: BasePush,
+        push: P,
         transparent_depth: Option<Depth>,
     ) {
         let shader_index = self.context.shader_mapping[&shader];
+        let expected_push_type = self.context.pipelines[shader_index].push_type;
+        assert_eq!(std::any::TypeId::of::<P>(), expected_push_type);
+
         let binding_index = page + sampler_index * self.context.texture_pages;
 
         let mesh_index = self.context.mesh_atlas.fetch(&mesh).unwrap();
 
-        vpush.transform = (self.projection * self.view * Mat4::from(vpush.transform)).0; // TODO: bottleneck
+        base_push.transform = (self.projection * self.view * Mat4::from(base_push.transform)).0; // TODO: bottleneck
+
+        let start_index = self.push_constants.len();
+
+        let base_push_bytes = push_constant_bytes(&base_push);
+        self.push_constants.extend_from_slice(base_push_bytes);
+        let push_bytes = push_constant_bytes(&push);
+        self.push_constants.extend_from_slice(push_bytes);
+
+        let end_index = self.push_constants.len();
 
         if let Some(depth) = transparent_depth {
             self.trans_calls.push(DrawCall {
@@ -712,8 +730,7 @@ where
                 shader_index,
                 binding_index,
                 index_range: mesh_index.index_range,
-                vpush,
-                fpush,
+                push_range: start_index .. end_index,
             });
         } else {
             self.opaque_calls.push(DrawCall {
@@ -721,18 +738,19 @@ where
                 shader_index,
                 binding_index,
                 index_range: mesh_index.index_range,
-                vpush,
-                fpush,
+                push_range: start_index .. end_index,
             });
         }
     }
 
-    pub fn raw_draw<I, M, S>(
+    pub fn stored_draw<P: 'static, I, M, S>(
         &mut self,
         shader: S,
         image: I,
         mesh: M,
-        properties: Properties,
+        transform: [[f32; 4]; 4],
+        push: P,
+        pixel_texture: bool,
         transparent_depth: Option<Depth>,
     ) where
         I: Into<ImageAssetKey<ImageKey>>,
@@ -740,10 +758,10 @@ where
         S: Into<ShaderAssetKey<ShaderKey>>,
     {
         let image = image.into();
-        let sampler_index = if properties.pixel_texture { 1 } else { 0 };
+        let sampler_index = if pixel_texture { 1 } else { 0 };
         let (page, region) = self.context.image_atlas.fetch(&image).unwrap();
-        let vpush = VPush {
-            transform: properties.transform,
+        let base_push = BasePush {
+            transform,
             uv_offset_scale: [
                 region.uv.0[0],
                 region.uv.0[1],
@@ -751,19 +769,14 @@ where
                 region.uv.1[1],
             ],
         };
-        let fpush = FPush {
-            tint: properties.tint,
-            emission: properties.emission,
-            color_a: properties.color_a,
-            color_b: properties.color_b,
-        };
-        self.raw_internal(
+
+        self.draw_internal(
             shader.into(),
             page,
             sampler_index,
             mesh.into(),
-            vpush,
-            fpush,
+            base_push,
+            push,
             transparent_depth,
         );
     }
@@ -795,12 +808,14 @@ where
     MeshKey: Clone + Eq + Hash + glace::Asset<Value = Cow<'static, [u8]>>,
     ShaderKey: Clone + Eq + Hash,
 {
-    pub fn draw<I, M, S>(
+    pub fn draw<P: 'static, I, M, S>(
         &mut self,
         shader: S,
         image: I,
         mesh: M,
-        properties: Properties,
+        transform: [[f32; 4]; 4],
+        push: P,
+        pixel_texture: bool,
         transparent_depth: Option<Depth>,
     ) where
         I: Into<ImageAssetKey<ImageKey>>,
@@ -820,7 +835,7 @@ where
                     .load_mesh(key.clone(), crate::mesh::load_glb(&key.value()).unwrap());
             }
         }
-        self.raw_draw(shader, image, mesh, properties, transparent_depth)
+        self.stored_draw(shader, image, mesh, transform, push, pixel_texture, transparent_depth)
     }
 }
 
@@ -859,7 +874,6 @@ where
 
     globals_layout: wgpu::BindGroupLayout,
     locals_layout: wgpu::BindGroupLayout,
-    pipeline_layout: wgpu::PipelineLayout,
 
     textures: (wgpu::Texture, wgpu::TextureView),
     samplers: [wgpu::Sampler; 2],
@@ -876,7 +890,7 @@ where
     font_atlas: FontAtlas,
     font_atlas_image: RgbaImage,
     shader_mapping: HashMap<ShaderAssetKey<ShaderKey>, usize>,
-    pipelines: Vec<[wgpu::RenderPipeline; 2]>,
+    pipelines: Vec<PipelineEntry>,
 }
 
 impl<ImageKey, MeshKey, ShaderKey> DrawContext<ImageKey, MeshKey, ShaderKey>
@@ -910,7 +924,7 @@ where
                     label: None,
                     features: wgpu::Features::PUSH_CONSTANTS,
                     limits: wgpu::Limits {
-                        max_push_constant_size: 144,
+                        max_push_constant_size: 256,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     }
                     .using_resolution(adapter.limits()),
@@ -939,6 +953,16 @@ where
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -946,16 +970,6 @@ where
                         min_binding_size: wgpu::BufferSize::new(
                             std::mem::size_of::<GlobalUniforms>() as _,
                         ),
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
                     },
                     count: None,
                 },
@@ -967,38 +981,21 @@ where
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(
-                            std::mem::size_of::<LocalUniforms>() as _,
+                            std::mem::size_of::<TexturePage>() as _,
                         ),
                     },
                     count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let vpush = std::mem::size_of::<VPush>() as u32;
-        let fpush = std::mem::size_of::<FPush>() as u32;
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&globals_layout, &locals_layout],
-            push_constant_ranges: &[
-                wgpu::PushConstantRange {
-                    stages: wgpu::ShaderStages::VERTEX,
-                    range: 0..vpush,
-                },
-                wgpu::PushConstantRange {
-                    stages: wgpu::ShaderStages::FRAGMENT,
-                    range: vpush..(vpush + fpush),
                 },
             ],
         });
@@ -1010,7 +1007,7 @@ where
             mapped_at_creation: false,
         });
 
-        let local_size = std::mem::size_of::<LocalUniforms>();
+        let local_size = std::mem::size_of::<TexturePage>();
         let num_buffers = texture_pages * SAMPLERS;
         let local_buffers = (0..num_buffers)
             .map(|_| {
@@ -1064,11 +1061,11 @@ where
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: global_buffer.as_entire_binding(),
+                    resource: wgpu::BindingResource::TextureView(&textures_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&textures_view),
+                    resource: global_buffer.as_entire_binding(),
                 },
             ],
             layout: &globals_layout,
@@ -1082,11 +1079,11 @@ where
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: local_buffers[i].as_entire_binding(),
+                            resource: wgpu::BindingResource::Sampler(&samplers[i / texture_pages]),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&samplers[i / texture_pages]),
+                            resource: local_buffers[i].as_entire_binding(),
                         },
                     ],
                     layout: &locals_layout,
@@ -1097,17 +1094,15 @@ where
 
         for sampler_index in 0..SAMPLERS {
             for index in 0..texture_pages {
-                let locals = LocalUniforms {
-                    texture_index: index as _,
-                    padding_0: 0.,
-                    padding_1: 0.,
-                    padding_2: 0.,
+                let locals = TexturePage {
+                    index: index as _,
+                    padding: [0.; 3],
                 };
 
                 let uniform_bytes = unsafe {
                     std::slice::from_raw_parts(
                         &locals as *const _ as *const u8,
-                        std::mem::size_of::<LocalUniforms>(),
+                        std::mem::size_of::<TexturePage>(),
                     )
                 };
                 queue.write_buffer(
@@ -1150,7 +1145,6 @@ where
 
             globals_layout,
             locals_layout,
-            pipeline_layout,
 
             textures: (textures, textures_view),
             samplers,
@@ -1230,18 +1224,26 @@ where
             indices: vec![0, 1, 2, 1, 3, 2],
         };
 
-        result.load_shader_internal(
+        result.load_shader_internal::<BasicPush>(
             AssetKey::Builtin(BuiltinShader::Basic),
             BUILTIN_SHADER,
             false,
         );
-        result.load_shader_internal(
-            AssetKey::Builtin(BuiltinShader::SimpleLight),
-            SIMPLELIGHT_SHADER,
+        result.load_shader_internal::<BasicPush>(
+            AssetKey::Builtin(BuiltinShader::YFlip),
+            YFLIP_SHADER,
+            true,
+        );
+        result.load_shader_internal::<()>(
+            AssetKey::Builtin(BuiltinShader::Simple),
+            SIMPLE_SHADER,
             false,
         );
-        result.load_shader_internal(AssetKey::Builtin(BuiltinShader::YFlip), YFLIP_SHADER, true);
-        result.load_shader_internal(AssetKey::Builtin(BuiltinShader::Debug), DEBUG_SHADER, false);
+        result.load_shader_internal::<LitPush>(
+            AssetKey::Builtin(BuiltinShader::Lit),
+            LIT_SHADER,
+            false,
+        );
 
         result.load_mesh_internal(BuiltinMesh::Quad, quad_mesh);
         result.load_mesh_internal(BuiltinMesh::Sprite, sprite_mesh);
@@ -1330,19 +1332,33 @@ where
         self.image_atlas.insert(AssetKey::Builtin(key), image);
     }
 
-    pub fn load_shader<S>(&mut self, key: ShaderKey, source: S, y_flipped: bool)
-    where
-        S: AsRef<str>,
+    pub fn load_shader<P: 'static>(&mut self, key: ShaderKey, source: impl AsRef<str>, y_flipped: bool)
     {
-        self.load_shader_internal(AssetKey::Key(key), source.as_ref(), y_flipped)
+        self.load_shader_internal::<P>(AssetKey::Key(key), source.as_ref(), y_flipped)
     }
 
-    fn load_shader_internal(
+    fn load_shader_internal<P: 'static>(
         &mut self,
         name: ShaderAssetKey<ShaderKey>,
         source: &str,
         y_flipped: bool,
     ) {
+        let push_type = std::any::TypeId::of::<P>();
+        let push_size = (std::mem::size_of::<BasePush>() + std::mem::size_of::<P>()) as u32;
+        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&self.globals_layout, &self.locals_layout],
+            push_constant_ranges: &[
+                wgpu::PushConstantRange {
+                    stages: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    range: 0..push_size,
+                },
+            ],
+        });
+
+        let mut shader_source = SHADER_HEADER.to_string();
+        shader_source.push_str(source);
+
         let vertex_attributes = wgpu::vertex_attr_array![
             0 => Float32x4,
             1 => Float32x4,
@@ -1355,9 +1371,6 @@ where
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attributes,
         };
-
-        let mut shader_source = SHADER_HEADER.to_owned();
-        shader_source.push_str(source);
 
         let shader = self
             .device
@@ -1380,7 +1393,7 @@ where
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: Some(&self.pipeline_layout),
+                layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vertex_main",
@@ -1407,7 +1420,7 @@ where
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: Some(&self.pipeline_layout),
+                layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vertex_main",
@@ -1436,7 +1449,13 @@ where
 
         let shader_index = self.pipelines.len();
         self.shader_mapping.insert(name, shader_index);
-        self.pipelines.push([opaque_pipeline, trans_pipeline]);
+        self.pipelines.push(PipelineEntry {
+            layout: pipeline_layout,
+            opaque: opaque_pipeline,
+            trans: trans_pipeline,
+            push_type,
+            _push_size: push_size,
+        });
     }
 
     fn prepare_for_frame(&mut self) {
@@ -1516,6 +1535,8 @@ where
             projection: Mat4::identity(),
             view: Mat4::identity(),
             vp_matrix: Mat4::identity(),
+            push_constants: vec![],
         }
     }
 }
+
