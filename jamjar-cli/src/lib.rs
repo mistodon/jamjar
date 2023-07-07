@@ -383,7 +383,10 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         .to_owned()
         .unwrap_or_else(|| manifest.package.name.clone());
 
-    let final_bin_name = config.example.as_ref().unwrap_or(config.bin_name.as_ref().unwrap_or(&manifest.package.name));
+    let final_bin_name = config
+        .example
+        .as_ref()
+        .unwrap_or(config.bin_name.as_ref().unwrap_or(&manifest.package.name));
 
     std::fs::create_dir_all(&config.output_dir)
         .map_err(|e| JamjarError::io(e, "Failed to create output directory."))?;

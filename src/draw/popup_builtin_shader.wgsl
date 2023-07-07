@@ -11,9 +11,10 @@ fn vertex_main(vertex: VertexInput) -> VertexOutput {
 @fragment
 fn fragment_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
     var base_color = textureSample(
-        textures[uniforms.texture_index],
-        samplers[uniforms.sampler_index],
-        vertex.uv
+        texturesTest,
+        textureSampler,
+        vertex.uv,
+        uniforms.texture_index
     );
 
     return (base_color * vertex.color * push.tint) + push.emission;

@@ -169,9 +169,9 @@ pub struct GlobalUniforms {
 #[repr(C)]
 pub struct LocalUniforms {
     texture_index: u32,
-    sampler_index: u32,
     padding_0: f32,
     padding_1: f32,
+    padding_2: f32,
 }
 
 struct GlyphCtx {
@@ -252,6 +252,26 @@ where
             for (i, image) in self.context.image_atlas_images.iter().enumerate() {
                 self.context.queue.write_texture(
                     self.context.textures[i].0.as_image_copy(),
+                    &image,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4 * self.context.texture_size),
+                        rows_per_image: Some(self.context.texture_size),
+                    },
+                    wgpu::Extent3d {
+                        width: self.context.texture_size,
+                        height: self.context.texture_size,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+
+            // Upload to image array
+            for (i, image) in self.context.image_atlas_images.iter().enumerate() {
+                let mut target = self.context.textures_test.0.as_image_copy();
+                target.origin.z = i as u32;
+                self.context.queue.write_texture(
+                    target,
                     &image,
                     wgpu::ImageDataLayout {
                         offset: 0,
@@ -443,6 +463,24 @@ where
                     self.context.textures[self.context.texture_pages - 1]
                         .0
                         .as_image_copy(),
+                    &self.context.font_atlas_image,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4 * self.context.texture_size),
+                        rows_per_image: Some(self.context.texture_size),
+                    },
+                    wgpu::Extent3d {
+                        width: self.context.texture_size,
+                        height: self.context.texture_size,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                // Write texture array
+                let mut target = self.context.textures_test.0.as_image_copy();
+                target.origin.z = self.context.texture_pages as u32 - 1;
+                self.context.queue.write_texture(
+                    target,
                     &self.context.font_atlas_image,
                     wgpu::ImageDataLayout {
                         offset: 0,
@@ -870,6 +908,7 @@ where
 
     textures: Vec<(wgpu::Texture, wgpu::TextureView)>,
     samplers: [wgpu::Sampler; 2],
+    textures_test: (wgpu::Texture, wgpu::TextureView),
     global_buffer: wgpu::Buffer,
     global_bindings: wgpu::BindGroup,
     local_buffers: Vec<wgpu::Buffer>,
@@ -915,8 +954,7 @@ where
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::PUSH_CONSTANTS
-                        | wgpu::Features::TEXTURE_BINDING_ARRAY,
+                    features: wgpu::Features::PUSH_CONSTANTS,
                     limits: wgpu::Limits {
                         max_push_constant_size: 144,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
@@ -963,33 +1001,35 @@ where
                     ty: wgpu::BindingType::Texture {
                         multisampled: false,
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                     },
-                    count: std::num::NonZeroU32::new(texture_pages as u32),
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: std::num::NonZeroU32::new(SAMPLERS as u32),
+                    count: None,
                 },
             ],
         });
 
         let locals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(
-                        std::mem::size_of::<LocalUniforms>() as _
-                    ),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<LocalUniforms>() as _,
+                        ),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         });
 
         let vpush = std::mem::size_of::<VPush>() as u32;
@@ -1073,6 +1113,22 @@ where
             }),
         ];
 
+        let textures_test = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: texture_size,
+                height: texture_size,
+                depth_or_array_layers: 4,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            label: None,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        });
+        let textures_test_view = textures_test.create_view(&wgpu::TextureViewDescriptor::default());
+
         let texture_views = textures.iter().map(|(_, view)| view).collect::<Vec<_>>();
         let global_bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
             entries: &[
@@ -1082,11 +1138,7 @@ where
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureViewArray(&texture_views),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::SamplerArray(&[&samplers[0], &samplers[1]]),
+                    resource: wgpu::BindingResource::TextureView(&textures_test_view),
                 },
             ],
             layout: &globals_layout,
@@ -1097,10 +1149,16 @@ where
         let local_bindings = (0..num_bindings)
             .map(|i| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: local_buffers[i].as_entire_binding(),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: local_buffers[i].as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&samplers[i / texture_pages]),
+                        },
+                    ],
                     layout: &locals_layout,
                     label: None,
                 })
@@ -1111,9 +1169,9 @@ where
             for index in 0..texture_pages {
                 let locals = LocalUniforms {
                     texture_index: index as _,
-                    sampler_index: sampler_index as _,
                     padding_0: 0.,
                     padding_1: 0.,
+                    padding_2: 0.,
                 };
 
                 let uniform_bytes = unsafe {
@@ -1166,6 +1224,7 @@ where
 
             textures,
             samplers,
+            textures_test: (textures_test, textures_test_view),
             global_buffer,
             global_bindings,
             local_buffers,

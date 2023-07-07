@@ -1,8 +1,8 @@
 use jamjar::{
     color,
     draw::{
-        D,
         popup::{BuiltinImage, BuiltinShader, Properties},
+        D,
     },
     input::WinitMouse,
     math::*,
@@ -40,7 +40,8 @@ async fn run() {
             .and_then(|win| win.document())
             .and_then(|doc| doc.body())
             .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas())).ok()
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
             })
             .expect("failed to add canvas to document body");
     }
@@ -107,6 +108,20 @@ async fn run() {
                     &Mesh::Cube,
                     Properties {
                         transform: (Mat4::translation([0., -0.7, 2.])
+                            * matrix::axis_rotation([0., 1., 0.], t as f32))
+                        .0,
+                        color_a: vec4(1., -1., 1., 0.).norm_zero().0,
+                        color_b: color::WHITE,
+                        ..Default::default()
+                    },
+                    None,
+                );
+                ren.draw(
+                    BuiltinShader::SimpleLight,
+                    BuiltinImage::White,
+                    &Mesh::Cube,
+                    Properties {
+                        transform: (Mat4::translation([1.5, -0.7, 2.])
                             * matrix::axis_rotation([0., 1., 0.], t as f32))
                         .0,
                         color_a: vec4(1., -1., 1., 0.).norm_zero().0,
