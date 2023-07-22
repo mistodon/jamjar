@@ -218,7 +218,9 @@ checksum = "63396b8a4b9de3f4fdfb320ab6080762242f66a8ef174c49d8e19b674db4cdbe"
 
 [[package]]
 name = "buttons"
-version = "0.4.0"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffdc502911809b727d9209be5999a9470ccb23925aae61228188729bebe0e876"
 dependencies = [
  "winit",
 ]
@@ -685,7 +687,8 @@ dependencies = [
 [[package]]
 name = "d3d12"
 version = "0.6.0"
-source = "git+https://github.com/gfx-rs/d3d12-rs?rev=b940b1d71#b940b1d71ab7083ae80eec697872672dc1f2bd32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8f0de2f5a8e7bd4a9eec0e3c781992a4ce1724f68aec7d7a3715344de8b39da"
 dependencies = [
  "bitflags 1.2.1",
  "libloading 0.7.0",
@@ -850,7 +853,9 @@ dependencies = [
 
 [[package]]
 name = "dymod"
-version = "0.3.0"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4934b32a7dfdce2c4acde6e27518f37cb1b450a6be30b151fb3943a93a6bce79"
 dependencies = [
  "libloading 0.5.2",
 ]
@@ -1470,7 +1475,9 @@ checksum = "8a164bb2ceaeff4f42542bdb847c41517c78a60f5649671b2a07312b6e117549"
 
 [[package]]
 name = "hvec"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f213e05de58f7b54a13ffdb4497da74c4110200503f32da62235c371f6f1f65d"
 
 [[package]]
 name = "ident_case"
@@ -1932,8 +1939,9 @@ dependencies = [
 
 [[package]]
 name = "naga"
-version = "0.12.0"
-source = "git+https://github.com/gfx-rs/naga?rev=b99d58ea435090e561377949f428bce2c18451bb#b99d58ea435090e561377949f428bce2c18451bb"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbcc2e0513220fd2b598e6068608d4462db20322c0e77e47f6f488dfcfc279cb"
 dependencies = [
  "bit-set",
  "bitflags 1.2.1",
@@ -3338,13 +3346,15 @@ checksum = "d8b77fdfd5a253be4ab714e4ffa3c49caf146b4de743e97510c0656cf90f1e8e"
 
 [[package]]
 name = "wgpu"
-version = "0.16.1"
+version = "0.16.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "480c965c9306872eb6255fa55e4b4953be55a8b64d57e61d7ff840d3dcc051cd"
 dependencies = [
  "arrayvec 0.7.2",
  "cfg-if 1.0.0",
  "js-sys",
  "log",
- "naga 0.12.0",
+ "naga 0.12.3",
  "parking_lot 0.12.1",
  "profiling",
  "raw-window-handle 0.5.2",
@@ -3361,13 +3371,15 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f478237b4bf0d5b70a39898a66fa67ca3a007d79f2520485b8b0c3dfc46f8c2"
 dependencies = [
  "arrayvec 0.7.2",
  "bit-vec",
  "bitflags 2.3.3",
  "codespan-reporting",
  "log",
- "naga 0.12.0",
+ "naga 0.12.3",
  "parking_lot 0.12.1",
  "profiling",
  "raw-window-handle 0.5.2",
@@ -3381,7 +3393,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-hal"
-version = "0.16.0"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ecb3258078e936deee14fd4e0febe1cfe9bbb5ffef165cb60218d2ee5eb4448"
 dependencies = [
  "android_system_properties",
  "arrayvec 0.7.2",
@@ -3403,7 +3417,7 @@ dependencies = [
  "libloading 0.8.0",
  "log",
  "metal 0.24.0",
- "naga 0.12.0",
+ "naga 0.12.3",
  "objc",
  "parking_lot 0.12.1",
  "profiling",
@@ -3421,7 +3435,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-types"
-version = "0.16.0"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0c153280bb108c2979eb5c7391cb18c56642dd3c072e55f52065e13e2a1252a"
 dependencies = [
  "bitflags 2.3.3",
  "js-sys",
