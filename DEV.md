@@ -23,3 +23,23 @@ The purpose of an atlas is to abstract away the process of uploading things to t
 2. Compile stage: `compile_into(cpu_side_container) -> modified range`
 3. Upload stage: defined by consumer - use the modified range and the cpu_side_container to upload to GPU
 4. Fetch APIs: `fetch(key) -> offset / region / etc.`
+
+# cherry
+
+* means default
+
+ShaderFlags
+- YFlipped
+- NoDepthWrite
+- BlendAdd
+- BackFaceOnly
+- StencilAdd
+- StencilSub
+
+PushFlags
+- *Transform
+- ModelMatrix
+- *AtlasUV
+
+# shadow
+

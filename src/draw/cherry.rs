@@ -37,6 +37,41 @@ const MAX_VERTICES: usize = 65536;
 #[cfg(target_arch = "wasm32")]
 const MAX_VERTICES: usize = 10000;
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ShaderConf {
+    pub phase: isize,
+    pub shader_flags: ShaderFlags,
+    pub push_flags: PushFlags,
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct ShaderFlags: u32 {
+        const Y_FLIPPED = 1 << 0;
+        const NO_COLOR_WRITE = 1 << 1;
+        const NO_DEPTH_WRITE = 1 << 2;
+        const BLEND_ADD = 1 << 3;
+        const BACK_FACE_ONLY = 1 << 4;
+        const STENCIL_ADD = 1 << 5;
+        const STENCIL_SUB = 1 << 6;
+        const STENCIL_SHOWS = 1 << 7;
+        const STENCIL_HIDES = 1 << 8;
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct PushFlags: u32 {
+        const TRANSFORM = 1 << 0;
+        const MODEL_MATRIX = 1 << 1;
+        const ATLAS_UV = 1 << 2;
+    }
+}
+
+impl Default for PushFlags {
+    fn default() -> Self {
+        PushFlags::TRANSFORM | PushFlags::ATLAS_UV
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinOnly {}
 
@@ -110,7 +145,8 @@ struct PipelineEntry {
     opaque: wgpu::RenderPipeline,
     trans: wgpu::RenderPipeline,
     push_type: std::any::TypeId,
-    _push_size: u32,
+    push_size: usize,
+    conf: ShaderConf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -191,8 +227,25 @@ fn push_constant_bytes<T: 'static>(t: &T) -> &[u8] {
     }
 }
 
+fn push_constant_size(overhead: usize, conf: ShaderConf) -> usize {
+    use std::mem::size_of;
+
+    let mut size = overhead;
+    for flag in conf.push_flags.iter() {
+        size += match flag {
+            PushFlags::TRANSFORM => size_of::<[[f32; 4]; 4]>(),
+            PushFlags::MODEL_MATRIX => size_of::<[[f32; 4]; 4]>(),
+            PushFlags::ATLAS_UV => size_of::<[f32; 4]>(),
+            _ => unreachable!(),
+        };
+    }
+
+    size
+}
+
 #[derive(PartialEq)]
 struct DrawCall {
+    phase: isize,
     depth: Depth,
     shader_index: usize,
     binding_index: usize,
@@ -202,20 +255,36 @@ struct DrawCall {
 
 impl PartialOrd for DrawCall {
     fn partial_cmp(&self, other: &DrawCall) -> Option<std::cmp::Ordering> {
-        Some((self.depth, self.shader_index, self.binding_index).cmp(&(
-            other.depth,
-            other.shader_index,
-            other.binding_index,
-        )))
+        Some(
+            (
+                self.phase,
+                self.depth,
+                self.shader_index,
+                self.binding_index,
+            )
+                .cmp(&(
+                    other.phase,
+                    other.depth,
+                    other.shader_index,
+                    other.binding_index,
+                )),
+        )
     }
 }
 impl Ord for DrawCall {
     fn cmp(&self, other: &DrawCall) -> std::cmp::Ordering {
-        (self.depth, self.shader_index, self.binding_index).cmp(&(
-            other.depth,
-            other.shader_index,
-            other.binding_index,
-        ))
+        (
+            self.phase,
+            self.depth,
+            self.shader_index,
+            self.binding_index,
+        )
+            .cmp(&(
+                other.phase,
+                other.depth,
+                other.shader_index,
+                other.binding_index,
+            ))
     }
 }
 impl Eq for DrawCall {}
@@ -323,8 +392,7 @@ where
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Passes
-        for pass_num in 0..2 {
-            let opaque = pass_num == 0;
+        for opaque in [true, false] {
             let [r, g, b, a] = self.clear_color;
 
             let mut pass = match opaque {
@@ -349,7 +417,10 @@ where
                             load: wgpu::LoadOp::Clear(1.0),
                             store: true,
                         }),
-                        stencil_ops: None,
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0),
+                            store: true,
+                        }),
                     }),
                 }),
                 false => commands.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -368,10 +439,15 @@ where
                             load: wgpu::LoadOp::Load,
                             store: false,
                         }),
-                        stencil_ops: None,
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: false,
+                        }),
                     }),
                 }),
             };
+
+            pass.set_stencil_reference(0);
 
             let ([x, y], [w, h]) = canvas_properties.viewport_scissor_rect;
             pass.set_scissor_rect(x as u32, y as u32, w as u32, h as u32);
@@ -544,12 +620,13 @@ where
         let [x, y] = pos;
         let [w, h] = region.size();
         let [w, h] = [w as f32, h as f32];
+        let push = BasicPush::default();
         self.stored_draw(
             BuiltinShader::YFlip,
             image,
             BuiltinMesh::Sprite,
             (Mat4::translation([x, y, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
-            BasicPush::default(),
+            push,
             pixel_texture,
             Some(depth),
         );
@@ -580,9 +657,9 @@ where
 
             let base_push = BasePush {
                 transform: (vp_matrix
-                            * Mat4::translation([x, y, 0.])
-                            * Mat4::scale([w, h, 1., 1.]))
-                    .0, // TODO: bottleneck
+                    * Mat4::translation([x, y, 0.])
+                    * Mat4::scale([w, h, 1., 1.]))
+                .0, // TODO: bottleneck
                 uv_offset_scale: [u, v, us, vs],
             };
             let push = BasicPush {
@@ -596,17 +673,19 @@ where
             self.push_constants.extend_from_slice(push_bytes);
             let end_index = self.push_constants.len();
 
+            let shader_index = self.context.shader_mapping[&BuiltinShader::YFlip.into()];
+            let shader_entry = &self.context.pipelines[shader_index];
             self.trans_calls.push(DrawCall {
+                phase: shader_entry.conf.phase,
                 depth,
-                shader_index: self.context.shader_mapping[&BuiltinShader::YFlip.into()],
+                shader_index,
                 binding_index: self.context.texture_pages - 1,
                 index_range: mesh_index.index_range,
-                push_range: start_index .. end_index,
+                push_range: start_index..end_index,
             });
         }
     }
 
-    // TODO: Encode the VP matrix somehow :/
     pub fn glyphs<'g, I>(&mut self, glyphs: I, offset: [f32; 2], tint: [f32; 4], depth: Depth)
     where
         I: IntoIterator<Item = &'g Glyph>,
@@ -706,19 +785,42 @@ where
         transparent_depth: Option<Depth>,
     ) {
         let shader_index = self.context.shader_mapping[&shader];
-        let expected_push_type = self.context.pipelines[shader_index].push_type;
-        assert_eq!(std::any::TypeId::of::<P>(), expected_push_type);
+        let shader_entry = &self.context.pipelines[shader_index];
+        let phase = shader_entry.conf.phase;
+
+        assert_eq!(
+            std::mem::size_of::<P>(),
+            shader_entry.push_size,
+            "Push constant size doesn't match shader with index `{}`",
+            shader_index
+        );
 
         let binding_index = page + sampler_index * self.context.texture_pages;
 
         let mesh_index = self.context.mesh_atlas.fetch(&mesh).unwrap();
 
+        let model_matrix = base_push.transform;
         base_push.transform = (self.projection * self.view * Mat4::from(base_push.transform)).0; // TODO: bottleneck
 
         let start_index = self.push_constants.len();
 
-        let base_push_bytes = push_constant_bytes(&base_push);
-        self.push_constants.extend_from_slice(base_push_bytes);
+        if shader_entry.conf.push_flags.contains(PushFlags::TRANSFORM) {
+            let push_bytes = push_constant_bytes(&base_push.transform);
+            self.push_constants.extend_from_slice(push_bytes);
+        }
+        if shader_entry
+            .conf
+            .push_flags
+            .contains(PushFlags::MODEL_MATRIX)
+        {
+            let push_bytes = push_constant_bytes(&model_matrix);
+            self.push_constants.extend_from_slice(push_bytes);
+        }
+        if shader_entry.conf.push_flags.contains(PushFlags::ATLAS_UV) {
+            let push_bytes = push_constant_bytes(&base_push.uv_offset_scale);
+            self.push_constants.extend_from_slice(push_bytes);
+        }
+
         let push_bytes = push_constant_bytes(&push);
         self.push_constants.extend_from_slice(push_bytes);
 
@@ -726,19 +828,21 @@ where
 
         if let Some(depth) = transparent_depth {
             self.trans_calls.push(DrawCall {
+                phase,
                 depth,
                 shader_index,
                 binding_index,
                 index_range: mesh_index.index_range,
-                push_range: start_index .. end_index,
+                push_range: start_index..end_index,
             });
         } else {
             self.opaque_calls.push(DrawCall {
+                phase,
                 depth: 0 * D,
                 shader_index,
                 binding_index,
                 index_range: mesh_index.index_range,
-                push_range: start_index .. end_index,
+                push_range: start_index..end_index,
             });
         }
     }
@@ -835,7 +939,15 @@ where
                     .load_mesh(key.clone(), crate::mesh::load_glb(&key.value()).unwrap());
             }
         }
-        self.stored_draw(shader, image, mesh, transform, push, pixel_texture, transparent_depth)
+        self.stored_draw(
+            shader,
+            image,
+            mesh,
+            transform,
+            push,
+            pixel_texture,
+            transparent_depth,
+        )
     }
 }
 
@@ -992,7 +1104,7 @@ where
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(
-                            std::mem::size_of::<TexturePage>() as _,
+                            std::mem::size_of::<TexturePage>() as _
                         ),
                     },
                     count: None,
@@ -1227,22 +1339,25 @@ where
         result.load_shader_internal::<BasicPush>(
             AssetKey::Builtin(BuiltinShader::Basic),
             BUILTIN_SHADER,
-            false,
+            ShaderConf::default(),
         );
         result.load_shader_internal::<BasicPush>(
             AssetKey::Builtin(BuiltinShader::YFlip),
             YFLIP_SHADER,
-            true,
+            ShaderConf {
+                shader_flags: ShaderFlags::Y_FLIPPED,
+                ..Default::default()
+            },
         );
         result.load_shader_internal::<()>(
             AssetKey::Builtin(BuiltinShader::Simple),
             SIMPLE_SHADER,
-            false,
+            ShaderConf::default(),
         );
         result.load_shader_internal::<LitPush>(
             AssetKey::Builtin(BuiltinShader::Lit),
             LIT_SHADER,
-            false,
+            ShaderConf::default(),
         );
 
         result.load_mesh_internal(BuiltinMesh::Quad, quad_mesh);
@@ -1332,29 +1447,34 @@ where
         self.image_atlas.insert(AssetKey::Builtin(key), image);
     }
 
-    pub fn load_shader<P: 'static>(&mut self, key: ShaderKey, source: impl AsRef<str>, y_flipped: bool)
-    {
-        self.load_shader_internal::<P>(AssetKey::Key(key), source.as_ref(), y_flipped)
+    pub fn load_shader<P: 'static>(
+        &mut self,
+        key: ShaderKey,
+        source: impl AsRef<str>,
+        conf: ShaderConf,
+    ) {
+        self.load_shader_internal::<P>(AssetKey::Key(key), source.as_ref(), conf)
     }
 
     fn load_shader_internal<P: 'static>(
         &mut self,
         name: ShaderAssetKey<ShaderKey>,
         source: &str,
-        y_flipped: bool,
+        conf: ShaderConf,
     ) {
         let push_type = std::any::TypeId::of::<P>();
-        let push_size = (std::mem::size_of::<BasePush>() + std::mem::size_of::<P>()) as u32;
-        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&self.globals_layout, &self.locals_layout],
-            push_constant_ranges: &[
-                wgpu::PushConstantRange {
+        let push_size = std::mem::size_of::<P>();
+        let total_push_size = push_constant_size(push_size, conf) as u32;
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&self.globals_layout, &self.locals_layout],
+                push_constant_ranges: &[wgpu::PushConstantRange {
                     stages: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    range: 0..push_size,
-                },
-            ],
-        });
+                    range: 0..total_push_size,
+                }],
+            });
 
         let mut shader_source = SHADER_HEADER.to_string();
         shader_source.push_str(source);
@@ -1379,14 +1499,109 @@ where
                 source: wgpu::ShaderSource::Wgsl(shader_source.into()),
             });
 
+        let y_flipped = conf.shader_flags.contains(ShaderFlags::Y_FLIPPED);
+        let back_face = conf.shader_flags.contains(ShaderFlags::BACK_FACE_ONLY);
+        let front_face = match (y_flipped, back_face) {
+            (false, false) => wgpu::FrontFace::Ccw,
+            (true, false) => wgpu::FrontFace::Cw,
+            (false, true) => wgpu::FrontFace::Cw,
+            (true, true) => wgpu::FrontFace::Ccw,
+        };
+
         let primitive = wgpu::PrimitiveState {
-            front_face: if y_flipped {
-                wgpu::FrontFace::Cw
-            } else {
-                wgpu::FrontFace::Ccw
-            },
+            front_face,
             cull_mode: Some(wgpu::Face::Back),
             ..wgpu::PrimitiveState::default()
+        };
+
+        let depth_compare = wgpu::CompareFunction::LessEqual;
+        let should_add = conf.shader_flags.contains(ShaderFlags::BLEND_ADD);
+        let add = Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        });
+
+        let write_color = !conf.shader_flags.contains(ShaderFlags::NO_COLOR_WRITE);
+
+        let opaque_fragment = wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fragment_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: self.swapchain_format,
+                blend: match (write_color, should_add) {
+                    (true, true) => add,
+                    _ => None,
+                },
+                write_mask: if write_color {
+                    wgpu::ColorWrites::default()
+                } else {
+                    wgpu::ColorWrites::empty()
+                },
+            })],
+        };
+
+        let trans_fragment = wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fragment_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: self.swapchain_format,
+                blend: match (write_color, should_add) {
+                    (true, true) => add,
+                    (true, _) => Some(wgpu::BlendState::ALPHA_BLENDING),
+                    _ => None,
+                },
+                write_mask: if write_color {
+                    wgpu::ColorWrites::default()
+                } else {
+                    wgpu::ColorWrites::empty()
+                },
+            })],
+        };
+
+        let (stencil_shows, stencil_hides, stencil_add, stencil_sub) = (
+            conf.shader_flags.contains(ShaderFlags::STENCIL_SHOWS),
+            conf.shader_flags.contains(ShaderFlags::STENCIL_HIDES),
+            conf.shader_flags.contains(ShaderFlags::STENCIL_ADD),
+            conf.shader_flags.contains(ShaderFlags::STENCIL_SUB),
+        );
+
+        let stencil = wgpu::StencilState {
+            read_mask: !0,
+            write_mask: !0,
+            back: wgpu::StencilFaceState::default(),
+            front: wgpu::StencilFaceState {
+                compare: match (stencil_shows, stencil_hides) {
+                    (true, _) => wgpu::CompareFunction::NotEqual,
+                    (false, true) => wgpu::CompareFunction::Equal,
+                    _ => wgpu::CompareFunction::Always,
+                },
+                fail_op: wgpu::StencilOperation::Keep,
+                depth_fail_op: wgpu::StencilOperation::Keep,
+                pass_op: match (stencil_add, stencil_sub) {
+                    (true, _) => wgpu::StencilOperation::IncrementClamp,
+                    (false, true) => wgpu::StencilOperation::DecrementClamp,
+                    _ => wgpu::StencilOperation::Keep,
+                },
+            },
+        };
+
+        let bias = if false {
+            // TODO: why does this do nothing?
+            wgpu::DepthBiasState {
+                constant: -1000000,
+                slope_scale: 0.,
+                clamp: 0.,
+            }
+        } else {
+            wgpu::DepthBiasState::default()
         };
 
         let opaque_pipeline = self
@@ -1399,18 +1614,14 @@ where
                     entry_point: "vertex_main",
                     buffers: &[vertex_buffer_layout.clone()],
                 },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fragment_main",
-                    targets: &[Some(self.swapchain_format.into())],
-                }),
+                fragment: Some(opaque_fragment),
                 primitive,
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    depth_write_enabled: !conf.shader_flags.contains(ShaderFlags::NO_DEPTH_WRITE),
+                    depth_compare,
+                    stencil: stencil.clone(),
+                    bias,
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
@@ -1426,22 +1637,14 @@ where
                     entry_point: "vertex_main",
                     buffers: &[vertex_buffer_layout.clone()],
                 },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fragment_main",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: self.swapchain_format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::default(),
-                    })],
-                }),
+                fragment: Some(trans_fragment),
                 primitive,
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Less,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    depth_compare,
+                    stencil,
+                    bias,
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
@@ -1454,7 +1657,8 @@ where
             opaque: opaque_pipeline,
             trans: trans_pipeline,
             push_type,
-            _push_size: push_size,
+            push_size,
+            conf,
         });
     }
 
@@ -1472,9 +1676,9 @@ where
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth32Float,
+                format: wgpu::TextureFormat::Depth24PlusStencil8,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[wgpu::TextureFormat::Depth32Float],
+                view_formats: &[wgpu::TextureFormat::Depth24PlusStencil8],
             });
 
             let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1539,4 +1743,3 @@ where
         }
     }
 }
-

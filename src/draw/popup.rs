@@ -25,7 +25,8 @@ use crate::{
 const SHADER_HEADER: &'static str = include_str!("popup_shaders/popup_shader_header.wgsl");
 const BUILTIN_SHADER: &'static str = include_str!("popup_shaders/popup_builtin_shader.wgsl");
 const YFLIP_SHADER: &'static str = include_str!("popup_shaders/popup_yflip_shader.wgsl");
-const SIMPLELIGHT_SHADER: &'static str = include_str!("popup_shaders/popup_simplelight_shader.wgsl");
+const SIMPLELIGHT_SHADER: &'static str =
+    include_str!("popup_shaders/popup_simplelight_shader.wgsl");
 const DEBUG_SHADER: &'static str = include_str!("popup_shaders/popup_debug_shader.wgsl");
 
 const SAMPLERS: usize = 2;

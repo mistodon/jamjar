@@ -105,7 +105,7 @@ async fn run() {
                 ren.draw(
                     BuiltinShader::SimpleLight,
                     BuiltinImage::White,
-                    &Mesh::Cube,
+                    &Mesh::ColorCube,
                     Properties {
                         transform: (Mat4::translation([0., -0.7, 2.])
                             * matrix::axis_rotation([0., 1., 0.], t as f32))
@@ -119,7 +119,7 @@ async fn run() {
                 ren.draw(
                     BuiltinShader::SimpleLight,
                     BuiltinImage::White,
-                    &Mesh::Cube,
+                    &Mesh::ColorCube,
                     Properties {
                         transform: (Mat4::translation([1.5, -0.7, 2.])
                             * matrix::axis_rotation([0., 1., 0.], t as f32))

@@ -72,9 +72,7 @@ mod gltf {
 
     use super::Vertex;
 
-    pub fn load_glb(
-        obj_file: &[u8],
-    ) -> gltf::Result<crate::mesh::Mesh<Vertex>> {
+    pub fn load_glb(obj_file: &[u8]) -> gltf::Result<crate::mesh::Mesh<Vertex>> {
         let (doc, buffers, _images) = gltf::import_slice(obj_file)?;
         let mesh_primitives = doc.meshes().next().unwrap().primitives().next().unwrap();
 
@@ -102,7 +100,7 @@ mod gltf {
         let indices = attribute_view::<u16>(0, &mesh_primitives.indices(), &buffers).to_vec();
 
         let flip_z = vec3(1., 1., -1.);
-        let vertices: Vec<Vertex> = (0..positions.len())
+        let mut vertices: Vec<Vertex> = (0..positions.len())
             .into_iter()
             .map(|i| Vertex {
                 position: (positions[i] * flip_z).extend(1.).0,
@@ -111,6 +109,13 @@ mod gltf {
                 color: (colors[i].as_f32() / 65535.).0,
             })
             .collect();
+
+        // Hack to avoid annoying missing vertex colors
+        for vertex in &mut vertices {
+            if vertex.color == [0., 0., 0., 0.] {
+                vertex.color = [1., 1., 1., 1.];
+            }
+        }
 
         Ok(crate::mesh::Mesh { vertices, indices })
     }

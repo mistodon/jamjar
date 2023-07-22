@@ -1,7 +1,7 @@
 use jamjar::{
     color,
     draw::{
-        cherry::{BuiltinImage, BuiltinShader, BasicPush, LitPush},
+        cherry::{BasicPush, BuiltinImage, BuiltinShader, LitPush},
         D,
     },
     input::WinitMouse,
@@ -144,7 +144,7 @@ async fn run() {
                 ren.draw(
                     BuiltinShader::Basic,
                     BuiltinImage::White,
-                    &Mesh::Cube,
+                    &Mesh::ColorCube,
                     (Mat4::translation([0., -0.7, 2.])
                         * matrix::axis_rotation([0., 1., 0.], t as f32))
                     .0,
@@ -155,7 +155,7 @@ async fn run() {
                 ren.draw(
                     BuiltinShader::Lit,
                     BuiltinImage::White,
-                    &Mesh::Cube,
+                    &Mesh::ColorCube,
                     (Mat4::translation([-1.5, -0.7, 2.])
                         * matrix::axis_rotation([0., 1., 0.], t as f32))
                     .0,
@@ -170,7 +170,7 @@ async fn run() {
                 ren.draw(
                     BuiltinShader::Simple,
                     BuiltinImage::White,
-                    &Mesh::Cube,
+                    &Mesh::ColorCube,
                     (Mat4::translation([1.5, -0.7, 2.])
                         * matrix::axis_rotation([0., 1., 0.], t as f32))
                     .0,
@@ -181,7 +181,7 @@ async fn run() {
                 ren.draw(
                     &(),
                     BuiltinImage::White,
-                    &Mesh::Cube,
+                    &Mesh::ColorCube,
                     (Mat4::translation([0., -0.9, 2.5])
                         * matrix::axis_rotation([0., 1., 0.], t as f32))
                     .0,

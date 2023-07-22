@@ -37,17 +37,8 @@ pub mod menus;
 #[cfg(feature = "mesh")]
 pub mod mesh;
 
-#[cfg(feature = "reloading")]
-pub mod reloading;
-#[cfg(feature = "reloading")]
+#[cfg(feature = "dymod")]
 pub use dymod::dymod;
-#[cfg(feature = "reloading")]
-pub use lazy_static::lazy_static;
-#[cfg(any(feature = "reloading", feature = "resources"))]
-pub use resource::*;
-
-#[cfg(feature = "resources")]
-pub mod resources;
 
 #[cfg(feature = "timing")]
 pub mod timing;
