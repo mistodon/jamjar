@@ -383,6 +383,7 @@ async fn run() {
                             tint: [color[0], color[1], color[2], 1.0],
                             emission: [0.; 4],
                         },
+                        &(),
                         false,
                         None,
                     );
@@ -415,6 +416,7 @@ async fn run() {
                             emission: [0., 0., 0., 0.],
                             ambient: [0.1, 0.1, 0.15, 1.],
                         },
+                        &(),
                         false,
                         None,
                     );
@@ -427,6 +429,7 @@ async fn run() {
                         ShadowPush {
                             light_dir: key_shadow_dir,
                         },
+                        &(),
                         false,
                         None,
                     );
@@ -438,11 +441,12 @@ async fn run() {
                         ShadowPush {
                             light_dir: key_shadow_dir,
                         },
+                        &(),
                         false,
                         None,
                     );
 
-                    ren.draw_uniforms(
+                    ren.draw(
                         &Shader::DirLight,
                         BuiltinImage::White,
                         &mesh,
@@ -466,6 +470,7 @@ async fn run() {
                                 pos: pos,
                                 light: color,
                             },
+                            &(),
                             false,
                             None,
                         );

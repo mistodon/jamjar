@@ -170,6 +170,7 @@ struct PipelineEntry {
     push_type: TypeId,
     push_size: usize,
     uniform_type: Option<TypeId>,
+    uniform_size: usize,
     conf: ShaderConf,
 }
 
@@ -1029,16 +1030,7 @@ where
             },
         };
 
-        let bias = if false {
-            // TODO: why does this do nothing?
-            wgpu::DepthBiasState {
-                constant: -1000000,
-                slope_scale: 0.,
-                clamp: 0.,
-            }
-        } else {
-            wgpu::DepthBiasState::default()
-        };
+        let bias = wgpu::DepthBiasState::default();
 
         let opaque_pipeline = self
             .device
@@ -1095,6 +1087,7 @@ where
             push_type,
             push_size,
             uniform_type: uniforms_layout.map(|_| TypeId::of::<U>()),
+            uniform_size: std::mem::size_of::<U>(),
             conf,
         });
     }
@@ -1914,7 +1907,12 @@ where
             shader_index
         );
 
-        // TODO: Assert on uniform size too
+        let uniform_size = std::mem::size_of::<U>();
+        assert_eq!(
+            uniform_size, shader_entry.uniform_size,
+            "Uniform size doesn't match shader with index `{}`",
+            shader_index
+        );
 
         let binding_index = page + sampler_index * self.context.texture_pages;
 
@@ -1947,7 +1945,6 @@ where
 
         let end_index = self.push_constants.len();
 
-        let uniform_size = std::mem::size_of::<U>();
         let uniforms_index = (uniform_size > 0).then(|| {
             let ptr = uniforms as *const _ as *const u8;
             if let Some(index) = self.uniform_indices.get(&ptr) {
@@ -2060,33 +2057,7 @@ where
     MeshKey: Clone + Eq + Hash + glace::Asset<Value = Cow<'static, [u8]>>,
     ShaderKey: Clone + Eq + Hash,
 {
-    pub fn draw<P: 'static, I, M, S>(
-        &mut self,
-        shader: S,
-        image: I,
-        mesh: M,
-        transform: [[f32; 4]; 4],
-        push: P,
-        pixel_texture: bool,
-        transparent_depth: Option<Depth>,
-    ) where
-        I: Into<ImageAssetKey<ImageKey>>,
-        M: Into<MeshAssetKey<MeshKey>>,
-        S: Into<ShaderAssetKey<ShaderKey>>,
-    {
-        self.draw_uniforms::<P, (), I, M, S>(
-            shader,
-            image,
-            mesh,
-            transform,
-            push,
-            &(),
-            pixel_texture,
-            transparent_depth,
-        );
-    }
-
-    pub fn draw_uniforms<P: 'static, U: 'static, I, M, S>(
+    pub fn draw<P: 'static, U: 'static, I, M, S>(
         &mut self,
         shader: S,
         image: I,
