@@ -343,6 +343,32 @@ async fn run() {
 
                 let mut ren = context.start_rendering([0.2, 0.6, 1., 1.], mouse_pos, [0.; 4]);
 
+                ren.ortho_2d();
+
+                let t = clock.secs() % 10.;
+                let text = font.layout_wrapped(
+                    "And font rendering just to flex,
+  because why not?",
+                    [32., 620.],
+                    sf,
+                    Some(44.),
+                    1200.,
+                    1.,
+                    None,
+                );
+                ren.glyphs_partial(
+                    &text,
+                    [0., 0.],
+                    [0.9, 1., 1., 1.],
+                    2 * D,
+                    t,
+                    |ch| match ch {
+                        ',' | '/' => 1.,
+                        ' ' => 0.1,
+                        _ => 0.05,
+                    },
+                );
+
                 ren.perspective_3d(1.0);
                 ren.set_view(
                     (Mat4::translation([0., -0.5, 0.]) * matrix::axis_rotation([1., 0., 0.], -0.5))

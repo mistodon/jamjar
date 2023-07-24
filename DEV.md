@@ -43,3 +43,31 @@ PushFlags
 
 # shadow
 
+1. If front face passes, add 1 to stencil
+2. If back face passes, sub 1 from stencil
+
+# Changing globals example
+
+- Shader that glows if it's facing the view vector
+- Draw one thing statically in the middle (it should always glow)
+- _THEN_ draw a circle of things around the camera as the camera spins (so the one in front is always glowing)
+
+Implementation:
+1.  Each time a draw call occurs immediately after a camera change
+    - Upload the old values to global bind buffer 0
+    - Allocate a new global bind buffer if needed
+    - Log the previous range:
+        - global bind buffer = 0
+        - opaque range = 0..10
+        - trans range = 0..5
+    - sort range 0..10 and range 0..5 of respective queues
+2.  Then at draw time:
+    - For each global buffer modified:
+        - bind it
+        - draw all the draw calls for those ranges
+
+Note that this interleaves opaque and trans passes for each camera change. We might be able to change this by making a new render pass for successive draws? But I think it mostly won't matter.
+
+Actually yeah, it seems easy to start a new pass and clear only depth/stencil on successive draws!
+
+Note: This is all setup for local bind buffers
