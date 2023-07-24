@@ -22,6 +22,9 @@ struct TexturePage {
 };
 
 struct GlobalUniforms {
+    v_mat: mat4x4<f32>,
+    p_mat: mat4x4<f32>,
+    vp_mat: mat4x4<f32>,
     view_vec: vec4<f32>,
     params: vec4<f32>,
     pixel_size: vec2<f32>,
@@ -36,7 +39,7 @@ var textures: texture_2d_array<f32>;
 
 @group(0)
 @binding(1)
-var<uniform> global_uniforms: GlobalUniforms;
+var<uniform> globals: GlobalUniforms;
 
 @group(1)
 @binding(0)

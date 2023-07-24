@@ -1,9 +1,6 @@
 use jamjar::{
-    color,
     draw::{
-        cherry::{
-            BasicPush, BuiltinImage, BuiltinShader, LitPush, PushFlags, ShaderConf, ShaderFlags,
-        },
+        cherry::{BasicPush, BuiltinImage, BuiltinShader, PushFlags, ShaderConf, ShaderFlags},
         D,
     },
     input::WinitMouse,
@@ -60,6 +57,10 @@ struct PointLightPush {
 #[repr(C)]
 struct DirLightPush {
     tint: [f32; 4],
+}
+
+#[repr(C)]
+struct DirLightUniforms {
     light_dirs: [[f32; 4]; 4],
     light_cols_t: [[f32; 4]; 4],
 }
@@ -101,7 +102,7 @@ fn fragment_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
 const POINTLIGHT_SHADER: &str = "
 struct Push {
     transform: mat4x4<f32>,
-    modelmatrix: mat4x4<f32>,
+    model_matrix: mat4x4<f32>,
     uv_offset_scale: vec4<f32>,
     tint: vec4<f32>,
     light_pos: vec4<f32>,
@@ -112,14 +113,14 @@ var<push_constant> push: Push;
 
 @vertex
 fn vertex_main(vertex: VertexInput) -> VertexOutput {
-    var world_pos_w = push.modelmatrix * vertex.position;
+    var world_pos_w = push.model_matrix * vertex.position;
     var world_pos = world_pos_w / world_pos_w.w;
     var to_light = push.light_pos - world_pos;
     var to_light_n = vec4(normalize(to_light.xyz), 0.0);
 
     var output: VertexOutput;
     output.position = push.transform * vertex.position;
-    output.normal = vertex.normal.xyz;
+    output.normal = normalize(push.model_matrix * vertex.normal).xyz;
     output.uv = vertex.uv.xy * (push.uv_offset_scale.zw) + push.uv_offset_scale.xy;
     output.color = vertex.color;
     output.custom_a = to_light_n;
@@ -146,19 +147,27 @@ fn fragment_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
 const DIRLIGHT_SHADER: &str = "
 struct Push {
     transform: mat4x4<f32>,
+    model_matrix: mat4x4<f32>,
     uv_offset_scale: vec4<f32>,
     tint: vec4<f32>,
+};
+
+var<push_constant> push: Push;
+
+struct DirLightUniforms {
     light_dirs: mat4x4<f32>,
     light_cols_t: mat4x4<f32>,
 };
 
-var<push_constant> push: Push;
+@group(2)
+@binding(0)
+var<uniform> lights: DirLightUniforms;
 
 @vertex
 fn vertex_main(vertex: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     output.position = push.transform * vertex.position;
-    output.normal = vertex.normal.xyz;
+    output.normal = normalize(push.model_matrix * vertex.normal).xyz;
     output.uv = vertex.uv.xy * (push.uv_offset_scale.zw) + push.uv_offset_scale.xy;
     output.color = vertex.color;
     return output;
@@ -174,7 +183,7 @@ fn fragment_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
     );
 
     var albedo = base_color * vertex.color * push.tint;
-    var light_con = push.light_cols_t * (push.light_dirs * vec4(vertex.normal, 0.0));
+    var light_con = lights.light_cols_t * (lights.light_dirs * vec4(vertex.normal, 0.0));
     return vec4((albedo * light_con).rgb, 1.0);
 }
 ";
@@ -191,8 +200,10 @@ var<push_constant> push: Push;
 @vertex
 fn vertex_main(vertex: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    var shadow_offset = push.light_dir * step(0.2, dot(vertex.normal.xyz, push.light_dir.xyz)) * 1000.0;
-    output.position = push.transform * (vertex.position + shadow_offset) - vec4(vertex.normal.xyz * 0.001, 0.0);
+    var world_normal = normalize(push.model_matrix * vertex.normal).xyz;
+    var shadow_offset = push.light_dir * step(0.2, dot(world_normal, push.light_dir.xyz)) * 1000.0;
+    var world_pos = (push.model_matrix * vertex.position) + shadow_offset - vec4(world_normal * 0.001, 0.0);
+    output.position = globals.vp_mat * world_pos;
     return output;
 }
 
@@ -244,11 +255,15 @@ async fn run() {
             push_flags: PushFlags::TRANSFORM | PushFlags::MODEL_MATRIX,
         },
     );
-    // context.load_shader::<ShadowPush>(Shader::ShadowFront, SHADOWVOL_SHADER, ShaderConf {
-    //     phase: 0,
-    //     shader_flags: ShaderFlags::default(),
-    //     push_flags: PushFlags::TRANSFORM | PushFlags::MODEL_MATRIX,
-    // });
+    // context.load_shader::<ShadowPush>(
+    //     Shader::ShadowFront,
+    //     SHADOWVOL_SHADER,
+    //     ShaderConf {
+    //         phase: 0,
+    //         shader_flags: ShaderFlags::default(),
+    //         push_flags: PushFlags::TRANSFORM | PushFlags::MODEL_MATRIX,
+    //     },
+    // );
 
     context.load_shader::<ShadowPush>(
         Shader::ShadowBack,
@@ -271,7 +286,7 @@ async fn run() {
             push_flags: PushFlags::default() | PushFlags::MODEL_MATRIX,
         },
     );
-    context.load_shader::<DirLightPush>(
+    context.load_shader_with_uniforms::<DirLightPush, DirLightUniforms>(
         Shader::DirLight,
         DIRLIGHT_SHADER,
         ShaderConf {
@@ -279,7 +294,7 @@ async fn run() {
             shader_flags: ShaderFlags::NO_DEPTH_WRITE
                 | ShaderFlags::BLEND_ADD
                 | ShaderFlags::STENCIL_HIDES,
-            push_flags: PushFlags::default(),
+            push_flags: PushFlags::default() | PushFlags::MODEL_MATRIX,
         },
     );
 
@@ -287,7 +302,6 @@ async fn run() {
     let font = jamjar::font::Font::new(Font::Chocolate11.bytes().into_owned(), 11.);
 
     let mut clock = jamjar::timing::RealClock::new_now();
-    let start = clock.now();
 
     let mut mouse = WinitMouse::new();
 
@@ -309,13 +323,16 @@ async fn run() {
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
+                dbg!(context.frame_stats());
+
                 let mouse_pos = context
                     .window_to_canvas_pos(mouse.position())
                     .unwrap_or([0., 0.]);
 
                 let sf = context.scale_factor();
 
-                let t0 = (clock.secs() % 9999.) as f32;
+                let t = clock.secs();
+                let t0 = (t % 9999.) as f32;
                 let t1 = (t0 * 1.43243) + 3.14159;
 
                 let lights = &[
@@ -341,33 +358,12 @@ async fn run() {
                 .transpose()
                 .0;
 
+                let dir_light_uniforms = DirLightUniforms {
+                    light_dirs,
+                    light_cols_t,
+                };
+
                 let mut ren = context.start_rendering([0.2, 0.6, 1., 1.], mouse_pos, [0.; 4]);
-
-                ren.ortho_2d();
-
-                let t = clock.secs() % 10.;
-                let text = font.layout_wrapped(
-                    "And font rendering just to flex,
-  because why not?",
-                    [32., 620.],
-                    sf,
-                    Some(44.),
-                    1200.,
-                    1.,
-                    None,
-                );
-                ren.glyphs_partial(
-                    &text,
-                    [0., 0.],
-                    [0.9, 1., 1., 1.],
-                    2 * D,
-                    t,
-                    |ch| match ch {
-                        ',' | '/' => 1.,
-                        ' ' => 0.1,
-                        _ => 0.05,
-                    },
-                );
 
                 ren.perspective_3d(1.0);
                 ren.set_view(
@@ -392,7 +388,12 @@ async fn run() {
                     );
                 }
 
-                let sphere_trans = (Mat4::translation([0., -0.2, 2.])).0;
+                let sphere_trans = (Mat4::translation([0., -0.2, 2.])
+                    * matrix::axis_rotation(
+                        [0., 1., 0.],
+                        (clock.secs() % std::f64::consts::TAU) as f32,
+                    ))
+                .0;
                 let sphere_2_trans = (Mat4::translation([t0.cos() * 2.0, 0.4, 1.4])).0;
                 let cube_trans =
                     (Mat4::translation([0., -2., 2.]) * Mat4::scale([9.0, 1.0, 9.0, 1.0])).0;
@@ -441,16 +442,15 @@ async fn run() {
                         None,
                     );
 
-                    ren.draw(
+                    ren.draw_uniforms(
                         &Shader::DirLight,
                         BuiltinImage::White,
                         &mesh,
                         trans,
                         DirLightPush {
                             tint: [1., 1., 1., 1.],
-                            light_dirs,
-                            light_cols_t,
                         },
+                        &dir_light_uniforms,
                         false,
                         None,
                     );
@@ -471,6 +471,32 @@ async fn run() {
                         );
                     }
                 }
+
+                ren.ortho_2d();
+
+                let t = t % 10.;
+                let text = font.layout_wrapped(
+                    "And font rendering just to flex,
+  because why not?",
+                    [32., 620.],
+                    sf,
+                    Some(44.),
+                    1200.,
+                    1.,
+                    None,
+                );
+                ren.glyphs_partial(
+                    &text,
+                    [0., 0.],
+                    [0.9, 1., 1., 1.],
+                    2 * D,
+                    t,
+                    |ch| match ch {
+                        ',' | '/' => 1.,
+                        ' ' => 0.1,
+                        _ => 0.05,
+                    },
+                );
             }
 
             _ => (),
