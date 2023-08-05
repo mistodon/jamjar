@@ -41,7 +41,7 @@ mesh = []
 gltf = ["dep:gltf"]
 timing = ["dep:wasm-bindgen"]
 windowing = ["dep:winit"]
-wgpu = ["dep:wgpu", "dep:pollster"]
+wgpu = ["dep:wgpu"]
 everything = ["image_atlas", "audio", "dymod", "font", "glace", "input", "logging", "math", "mesh", "timing", "windowing"]
 
 dx12 = ["gfx-backend-dx12"]
@@ -93,7 +93,7 @@ wgpu = { version = "0.16", features = ["webgl"], optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dymod = { version = "0.4", optional = true }
 rodio = { version = "0.13", optional = true, features = ["flac", "vorbis", "wav"], default-features = false }
-pollster = { version = "0.2", optional = true }
+pollster = { version = "0.2" }
 winit = { version = "0.27", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]

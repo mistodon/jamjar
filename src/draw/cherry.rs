@@ -9,13 +9,13 @@ use image::RgbaImage;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    atlas::{font::FontAtlas, image_array::ImageArrayAtlas, mesh::MeshAtlas, Atlas},
+    atlas::{font::FontAtlas, image_array::ImageArrayAtlas, mesh::SubmeshAtlas, Atlas},
     color,
     draw::{CanvasConfig, Depth, D},
     font::Glyph,
     layout::{Anchor, Frame},
     math::*,
-    mesh::{Mesh, Vertex},
+    mesh::{Mesh, Submeshes, Vertex},
     utils::Flag,
     windowing::{
         event::{Event, WindowEvent},
@@ -116,6 +116,12 @@ pub enum BuiltinShader {
     Lit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MeshVariant {
+    Raw,
+    Stitched,
+}
+
 type ImageAssetKey<K> = AssetKey<K, BuiltinImage>;
 type MeshAssetKey<K> = AssetKey<K, BuiltinMesh>;
 type ShaderAssetKey<K> = AssetKey<K, BuiltinShader>;
@@ -193,6 +199,31 @@ impl Default for BasicPush {
         BasicPush {
             tint: color::WHITE,
             emission: color::TRANS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpriteParams {
+    pub pos: [f32; 2],
+    pub depth: Depth,
+    pub pixelly: bool,
+    pub tint: [f32; 4],
+    pub emission: [f32; 4],
+    pub cel: ([usize; 2], [usize; 2]),
+    pub size: Option<[f32; 2]>,
+}
+
+impl Default for SpriteParams {
+    fn default() -> Self {
+        SpriteParams {
+            pos: [0., 0.],
+            depth: 0 * D,
+            pixelly: true,
+            tint: color::WHITE,
+            emission: color::TRANS,
+            cel: ([0, 0], [1, 1]),
+            size: None,
         }
     }
 }
@@ -368,7 +399,7 @@ where
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 
-    mesh_atlas: MeshAtlas<MeshAssetKey<MeshKey>, Vertex>,
+    mesh_atlas: SubmeshAtlas<MeshAssetKey<MeshKey>, (MeshAssetKey<MeshKey>, MeshVariant), Vertex>,
     image_atlas: ImageArrayAtlas<'static, ImageAssetKey<ImageKey>>,
     image_atlas_images: Vec<RgbaImage>,
     font_atlas: FontAtlas,
@@ -646,7 +677,7 @@ where
             vertex_buffer,
             index_buffer,
 
-            mesh_atlas: MeshAtlas::new(),
+            mesh_atlas: SubmeshAtlas::new(),
             image_atlas: ImageArrayAtlas::new([texture_size; 2], Some(3)),
             image_atlas_images: vec![
                 RgbaImage::new(texture_size, texture_size);
@@ -744,8 +775,8 @@ where
             ShaderConf::default(),
         );
 
-        result.load_mesh_internal(BuiltinMesh::Quad, quad_mesh);
-        result.load_mesh_internal(BuiltinMesh::Sprite, sprite_mesh);
+        result.load_mesh_internal(AssetKey::Builtin(BuiltinMesh::Quad), quad_mesh);
+        result.load_mesh_internal(AssetKey::Builtin(BuiltinMesh::Sprite), sprite_mesh);
 
         result.load_image_internal(BuiltinImage::White, {
             let bytes = include_bytes!("../../assets/images/white.png");
@@ -820,11 +851,58 @@ where
     }
 
     pub fn load_mesh(&mut self, key: MeshKey, mesh: Mesh<Vertex>) {
-        self.mesh_atlas.insert((AssetKey::Key(key), mesh));
+        let key = AssetKey::Key(key);
+        self.load_mesh_internal(key, mesh);
     }
 
-    fn load_mesh_internal(&mut self, key: BuiltinMesh, mesh: Mesh<Vertex>) {
-        self.mesh_atlas.insert((AssetKey::Builtin(key), mesh));
+    fn load_mesh_stitched(&mut self, key: MeshAssetKey<MeshKey>, mesh: Mesh<Vertex>) {
+        self.mesh_atlas.remove_mesh(&key);
+
+        let Mesh {
+            mut vertices,
+            indices,
+        } = mesh;
+
+        let stitched_indices = crate::mesh::stitch_mesh(&mut vertices, &indices);
+
+        let raw_submeshes = Submeshes {
+            index_range: 0..indices.len() as u32,
+            submeshes: vec![],
+        };
+
+        let stitched_submeshes = Submeshes {
+            index_range: 0..stitched_indices.len() as u32,
+            submeshes: vec![],
+        };
+
+        self.mesh_atlas.insert_vertices(key.clone(), vertices);
+        self.mesh_atlas.insert_submeshes(
+            key.clone(),
+            (key.clone(), MeshVariant::Raw),
+            indices,
+            raw_submeshes,
+        );
+        self.mesh_atlas.insert_submeshes(
+            key.clone(),
+            (key.clone(), MeshVariant::Stitched),
+            stitched_indices,
+            stitched_submeshes,
+        );
+    }
+
+    fn load_mesh_internal(&mut self, key: MeshAssetKey<MeshKey>, mesh: Mesh<Vertex>) {
+        let Mesh { vertices, indices } = mesh;
+        let submeshes = Submeshes {
+            index_range: 0..indices.len() as u32,
+            submeshes: vec![],
+        };
+        self.mesh_atlas.insert_vertices(key.clone(), vertices);
+        self.mesh_atlas.insert_submeshes(
+            key.clone(),
+            (key.clone(), MeshVariant::Raw),
+            indices,
+            submeshes,
+        );
     }
 
     pub fn load_image(&mut self, key: ImageKey, image: RgbaImage) {
@@ -1116,32 +1194,30 @@ where
             self.depth_buffer = Some(depth_view);
         }
 
-        if self.mesh_atlas.modified() {
-            let mut mesh = Mesh::<Vertex>::new();
-            let updated_range = self.mesh_atlas.compile_into(&mut mesh).unwrap();
-
-            let vertex_offset =
-                updated_range.vertex_range.start as usize * std::mem::size_of::<Vertex>();
-            let index_offset =
-                updated_range.index_range.start as usize * std::mem::size_of::<u16>();
+        // TODO: Use updated range
+        if let Some(_updated_range) = self.mesh_atlas.compile() {
+            let mut indices = self.mesh_atlas.indices.clone();
 
             // TODO: Less hacky alignment fix
-            if (mesh.indices.len() % 2) != 0 {
-                mesh.indices.push(0);
+            if (indices.len() % 2) != 0 {
+                indices.push(0);
             }
 
             let vertex_data = unsafe {
                 std::slice::from_raw_parts(
-                    mesh.vertices.as_ptr() as *const Vertex as *const u8,
-                    mesh.vertices.len() * std::mem::size_of::<Vertex>(),
+                    self.mesh_atlas.vertices.as_ptr() as *const Vertex as *const u8,
+                    self.mesh_atlas.vertices.len() * std::mem::size_of::<Vertex>(),
                 )
             };
             let index_data = unsafe {
                 std::slice::from_raw_parts(
-                    mesh.indices.as_ptr() as *const u16 as *const u8,
-                    mesh.indices.len() * std::mem::size_of::<u16>(),
+                    indices.as_ptr() as *const u16 as *const u8,
+                    indices.len() * std::mem::size_of::<u16>(),
                 )
             };
+
+            let vertex_offset = 0;
+            let index_offset = 0;
 
             self.queue
                 .write_buffer(&self.vertex_buffer, vertex_offset as u64, vertex_data);
@@ -1646,6 +1722,12 @@ where
         self.update_matrices(Mat4::new(matrix), self.camera_pass.projection);
     }
 
+    pub fn set_view_within_pass(&mut self, matrix: [[f32; 4]; 4]) {
+        self.camera_pass.view = Mat4::new(matrix);
+        self.camera_pass.projection = self.camera_pass.projection;
+        self.camera_pass.vp_matrix = self.camera_pass.projection * self.camera_pass.view;
+    }
+
     pub fn modify_view(&mut self, matrix: [[f32; 4]; 4]) {
         self.update_matrices(
             Mat4::new(matrix) * self.camera_pass.view,
@@ -1694,25 +1776,30 @@ where
     pub fn stored_sprite<K: Into<ImageAssetKey<ImageKey>>>(
         &mut self,
         image: K,
-        pos: [f32; 2],
-        depth: Depth,
-        pixel_texture: bool,
+        params: SpriteParams,
     ) -> Frame {
         let image = image.into();
         let (_page, region) = self.context.image_atlas.fetch(&image).unwrap();
-        let [x, y] = pos;
+        let [x, y] = params.pos;
         let [w, h] = region.size();
-        let [w, h] = [w as f32, h as f32];
-        let push = BasicPush::default();
-        self.stored_draw(
+        let [cels_x, cels_y] = params.cel.1;
+        let [w, h] = params
+            .size
+            .unwrap_or([w as f32 / cels_x as f32, h as f32 / cels_y as f32]);
+        self.stored_draw_internal(
             BuiltinShader::YFlip,
             image,
+            params.cel,
             BuiltinMesh::Sprite,
+            MeshVariant::Raw,
             (Mat4::translation([x, y, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
-            push,
+            BasicPush {
+                tint: params.tint,
+                emission: params.emission,
+            },
             &(),
-            pixel_texture,
-            Some(depth),
+            params.pixelly,
+            Some(params.depth),
         );
         Anchor::from([x, y]).frame([w, h])
     }
@@ -1755,8 +1842,14 @@ where
         }
     }
 
-    pub fn glyphs<'g, I>(&mut self, glyphs: I, offset: [f32; 2], tint: [f32; 4], depth: Depth)
-    where
+    pub fn glyphs<'g, I>(
+        &mut self,
+        glyphs: I,
+        offset: [f32; 2],
+        tint: [f32; 4],
+        depth: Depth,
+        pixelly: bool,
+    ) where
         I: IntoIterator<Item = &'g Glyph>,
     {
         let sf = self.context.scale_factor as f32;
@@ -1780,7 +1873,7 @@ where
         let mesh_index = self
             .context
             .mesh_atlas
-            .fetch(&BuiltinMesh::Sprite.into())
+            .fetch_submesh(&(BuiltinMesh::Sprite.into(), MeshVariant::Raw), None)
             .unwrap();
 
         let draw_call_index = self.trans_calls.len();
@@ -1790,6 +1883,11 @@ where
             tint,
             vp_matrix: self.camera_pass.vp_matrix,
         });
+        let px = if pixelly {
+            self.context.texture_pages
+        } else {
+            0
+        };
         for glyph in glyphs {
             self.glyph_buffer.push(glyph);
 
@@ -1798,7 +1896,7 @@ where
                 phase: shader_entry.conf.phase,
                 depth,
                 shader_index,
-                binding_index: self.context.texture_pages - 1,
+                binding_index: self.context.texture_pages - 1 + px,
                 uniforms_index: None,
                 index_range: mesh_index.index_range.clone(),
                 push_range: 0..0,
@@ -1813,6 +1911,7 @@ where
         offset: [f32; 2],
         tint: [f32; 4],
         depth: Depth,
+        pixelly: bool,
         budget: f64,
         cost_fn: F,
     ) -> (f64, Option<usize>)
@@ -1851,7 +1950,7 @@ where
         let mesh_index = self
             .context
             .mesh_atlas
-            .fetch(&BuiltinMesh::Sprite.into())
+            .fetch_submesh(&(BuiltinMesh::Sprite.into(), MeshVariant::Raw), None)
             .unwrap();
 
         let draw_call_index = self.trans_calls.len();
@@ -1862,6 +1961,12 @@ where
             vp_matrix: self.camera_pass.vp_matrix,
         });
 
+        let px = if pixelly {
+            self.context.texture_pages
+        } else {
+            0
+        };
+
         for glyph in to_render {
             self.glyph_buffer.push(glyph);
 
@@ -1870,7 +1975,7 @@ where
                 phase: shader_entry.conf.phase,
                 depth,
                 shader_index,
-                binding_index: self.context.texture_pages - 1,
+                binding_index: self.context.texture_pages - 1 + px,
                 uniforms_index: None,
                 index_range: mesh_index.index_range.clone(),
                 push_range: 0..0,
@@ -1885,12 +1990,13 @@ where
         }
     }
 
-    fn draw_internal<P: 'static, U: 'static>(
+    fn queue_draw_call<P: 'static, U: 'static>(
         &mut self,
         shader: ShaderAssetKey<ShaderKey>,
         page: u8,
         sampler_index: u8,
         mesh: MeshAssetKey<MeshKey>,
+        mesh_variant: MeshVariant,
         mut base_push: BasePush,
         push: P,
         uniforms: &U,
@@ -1916,7 +2022,11 @@ where
 
         let binding_index = page + sampler_index * self.context.texture_pages;
 
-        let mesh_index = self.context.mesh_atlas.fetch(&mesh).unwrap();
+        let mesh_index = self
+            .context
+            .mesh_atlas
+            .fetch_submesh(&(mesh, mesh_variant), None)
+            .unwrap();
 
         let model_matrix = base_push.transform;
         base_push.transform = (self.camera_pass.vp_matrix * Mat4::from(base_push.transform)).0;
@@ -2005,29 +2115,78 @@ where
         M: Into<MeshAssetKey<MeshKey>>,
         S: Into<ShaderAssetKey<ShaderKey>>,
     {
+        self.stored_draw_internal(
+            shader,
+            image,
+            ([0, 0], [1, 1]),
+            mesh,
+            MeshVariant::Raw,
+            transform,
+            push,
+            uniforms,
+            pixel_texture,
+            transparent_depth,
+        );
+    }
+
+    fn stored_draw_internal<P: 'static, U: 'static, I, M, S>(
+        &mut self,
+        shader: S,
+        image: I,
+        image_region: ([usize; 2], [usize; 2]),
+        mesh: M,
+        mesh_variant: MeshVariant,
+        transform: [[f32; 4]; 4],
+        push: P,
+        uniforms: &U,
+        pixel_texture: bool,
+        transparent_depth: Option<Depth>,
+    ) where
+        I: Into<ImageAssetKey<ImageKey>>,
+        M: Into<MeshAssetKey<MeshKey>>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
+    {
         let image = image.into();
         let sampler_index = if pixel_texture { 1 } else { 0 };
         let (page, region) = self.context.image_atlas.fetch(&image).unwrap();
+
+        let ([sprite_x, sprite_y], [sheet_w, sheet_h]) = image_region;
+        let (u_scale, v_scale) = (
+            region.uv.1[0] / sheet_w as f32,
+            region.uv.1[1] / sheet_h as f32,
+        );
+
         let base_push = BasePush {
             transform,
             uv_offset_scale: [
-                region.uv.0[0],
-                region.uv.0[1],
-                region.uv.1[0],
-                region.uv.1[1],
+                region.uv.0[0] + sprite_x as f32 * u_scale,
+                region.uv.0[1] + sprite_y as f32 * v_scale,
+                u_scale,
+                v_scale,
             ],
         };
 
-        self.draw_internal(
+        self.queue_draw_call(
             shader.into(),
             page as u8,
             sampler_index,
             mesh.into(),
+            mesh_variant,
             base_push,
             push,
             uniforms,
             transparent_depth,
         );
+    }
+
+    pub fn stored_image_region<I>(&self, image: I) -> Option<(usize, crate::draw::Region)>
+    where
+        I: Into<ImageAssetKey<ImageKey>>,
+    {
+        self.context
+            .image_atlas
+            .fetch(&image.into())
+            .map(|(i, r)| (i, r.clone()))
     }
 }
 
@@ -2037,7 +2196,7 @@ where
     MeshKey: Clone + Eq + Hash,
     ShaderKey: Clone + Eq + Hash,
 {
-    pub fn sprite<I>(&mut self, image: I, pos: [f32; 2], depth: Depth, pixelly: bool) -> Frame
+    pub fn sprite<I>(&mut self, image: I, params: SpriteParams) -> Frame
     where
         I: Into<ImageAssetKey<ImageKey>>,
     {
@@ -2047,7 +2206,20 @@ where
                 self.context.load_image(key.clone(), key.value());
             }
         }
-        self.stored_sprite(image, pos, depth, pixelly)
+        self.stored_sprite(image, params)
+    }
+
+    pub fn image_region<I>(&mut self, image: I) -> Option<(usize, crate::draw::Region)>
+    where
+        I: Into<ImageAssetKey<ImageKey>>,
+    {
+        let image = image.into();
+        if let AssetKey::Key(key) = &image {
+            if self.context.image_atlas.fetch(&image).is_none() {
+                self.context.load_image(key.clone(), key.value());
+            }
+        }
+        self.stored_image_region(image)
     }
 }
 
@@ -2080,15 +2252,69 @@ where
         }
         let mesh = mesh.into();
         if let AssetKey::Key(key) = &mesh {
-            if self.context.mesh_atlas.fetch(&mesh).is_none() {
+            if self
+                .context
+                .mesh_atlas
+                .fetch_submesh(&(mesh.clone(), MeshVariant::Raw), None)
+                .is_none()
+            {
                 self.context
                     .load_mesh(key.clone(), crate::mesh::load_glb(&key.value()).unwrap());
             }
         }
-        self.stored_draw(
+        self.stored_draw_internal(
             shader,
             image,
+            ([0, 0], [1, 1]),
             mesh,
+            MeshVariant::Raw,
+            transform,
+            push,
+            uniforms,
+            pixel_texture,
+            transparent_depth,
+        )
+    }
+
+    pub fn draw_stitched<P: 'static, U: 'static, I, M, S>(
+        &mut self,
+        shader: S,
+        image: I,
+        mesh: M,
+        transform: [[f32; 4]; 4],
+        push: P,
+        uniforms: &U,
+        pixel_texture: bool,
+        transparent_depth: Option<Depth>,
+    ) where
+        I: Into<ImageAssetKey<ImageKey>>,
+        M: Into<MeshAssetKey<MeshKey>>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
+    {
+        let image = image.into();
+        if let AssetKey::Key(key) = &image {
+            if self.context.image_atlas.fetch(&image).is_none() {
+                self.context.load_image(key.clone(), key.value());
+            }
+        }
+        let mesh = mesh.into();
+        if let AssetKey::Key(key) = &mesh {
+            if self
+                .context
+                .mesh_atlas
+                .fetch_submesh(&(mesh.clone(), MeshVariant::Stitched), None)
+                .is_none()
+            {
+                self.context
+                    .load_mesh_stitched(key.into(), crate::mesh::load_glb(&key.value()).unwrap());
+            }
+        }
+        self.stored_draw_internal(
+            shader,
+            image,
+            ([0, 0], [1, 1]),
+            mesh,
+            MeshVariant::Stitched,
             transform,
             push,
             uniforms,

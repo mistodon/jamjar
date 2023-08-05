@@ -24,50 +24,50 @@ The purpose of an atlas is to abstract away the process of uploading things to t
 3. Upload stage: defined by consumer - use the modified range and the cpu_side_container to upload to GPU
 4. Fetch APIs: `fetch(key) -> offset / region / etc.`
 
-# cherry
+# Thoughts about dynamic meshes:
 
-* means default
+Use cases:
 
-ShaderFlags
-- YFlipped
-- NoDepthWrite
-- BlendAdd
-- BackFaceOnly
-- StencilAdd
-- StencilSub
+1.  I generate geometry on the fly
+2.  I post-process a mesh at runtime (outlines, etc.)
+3.  I have procedurally, iteratively, generated meshes (like a minecraft map)
 
-PushFlags
-- *Transform
-- ModelMatrix
-- *AtlasUV
+The first kind can easily be immediate-mode.
+The second kind has to be retained but never modified.
+The third kind needs to _live_ somewhere.
 
-# shadow
+For case 1 (and maybe text) I could store/bind a second vertex buffer for immediate-mode stuff.
 
-1. If front face passes, add 1 to stencil
-2. If back face passes, sub 1 from stencil
+For case 2 and 3, it makes sense to use the same mesh atlas - but the key becomes an annoying thing. Plus I'd need a method to modify an existing mesh - so the atlas would have to deal with removals. Oh no, this puts us back in atlas-hell...
 
-# Changing globals example
+Two real problems left to solve:
 
-- Shader that glows if it's facing the view vector
-- Draw one thing statically in the middle (it should always glow)
-- _THEN_ draw a circle of things around the camera as the camera spins (so the one in front is always glowing)
+1.  What's the key API for making builtin/filesystem/runtime meshes work?
+2.  What are the update APIs for an atlas?
+    - Remove? Replace (remove-then-add)? Update-in-place?
 
-Implementation:
-1.  Each time a draw call occurs immediately after a camera change
-    - Upload the old values to global bind buffer 0
-    - Allocate a new global bind buffer if needed
-    - Log the previous range:
-        - global bind buffer = 0
-        - opaque range = 0..10
-        - trans range = 0..5
-    - sort range 0..10 and range 0..5 of respective queues
-2.  Then at draw time:
-    - For each global buffer modified:
-        - bind it
-        - draw all the draw calls for those ranges
+## Tasks
 
-Note that this interleaves opaque and trans passes for each camera change. We might be able to change this by making a new render pass for successive draws? But I think it mostly won't matter.
-
-Actually yeah, it seems easy to start a new pass and clear only depth/stencil on successive draws!
-
-Note: This is all setup for local bind buffers
+- [ ] Think about how sub-meshes should work
+    - I think it's fine to have it like python regex groups
+        - Drawing just The Mesh will draw all submeshes
+        - But there can be a draw_submesh that lets you pick an index
+        - They might be named too idk
+        - So Mesh needs to store index ranges for each submesh
+    - Variant meshes is harder. Where do we store the output of stitch_mesh()?
+        - This feels like it should "live" in draw::cherry because it's not really a fundamental property of meshes OR mesh atlases.
+        - Maybe draw_cherry even has a separate index buffer for stitched meshes?
+            - So we don't have to do it manually - there's draw, draw_submesh, and draw_stitched_mesh (which takes an optional submesh index and populates the index buffer if it hasn't done that already)
+        - But wait! Stitching might add vertices. Also our MeshAtlas doesn't account for submeshes, and cannot right now. Which means I need to re-work the MeshAtlas too...
+            - I think we need new types:
+                - MeshVertices - the actual vertices
+                - SubMeshes - a list of index ranges, implicitly tied to a MeshVertices
+            - Then we need to be able to load MeshVertices, and store arbitrary SubMeshes instances for that in our atlas.
+            - MeshAtlas might even need new methods for insert_vertices(...) -> offset, and insert_submeshes(offset, ...)
+            - No, better:
+                - insert_vertices(key: TVertexKey, ...)
+                - insert_submeshes(vertices: TVertexKey, submeshes: TSubmeshesKey, ...)
+            - This lets us use Mesh as a key for insert_vertices
+            - ... and (Mesh, Variant) as a key for insert_submeshes
+- [ ] stitch_mesh() function that removes sharp edges
+- [ ] shadow_volume() function that creates a shadow volume
