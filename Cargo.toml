@@ -84,7 +84,7 @@ console_log = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 dymod = { version = "0.4", optional = true, default-features = false }
 gfx-auxil = { version = "0.10", optional = true }
-rodio = { version = "0.13", optional = true, features = ["flac", "vorbis", "wav", "wasm-bindgen"], default-features = false }
+rodio = { version = "0.17", optional = true, features = ["flac", "vorbis", "wav", "wasm-bindgen"], default-features = false }
 wasm-bindgen = { version = "=0.2.86", optional = true }
 wasm-bindgen-futures = { version = "0.4" }
 winit = { version = "0.27", optional = true }
@@ -92,7 +92,7 @@ wgpu = { version = "0.16", features = ["webgl"], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dymod = { version = "0.4", optional = true }
-rodio = { version = "0.13", optional = true, features = ["flac", "vorbis", "wav"], default-features = false }
+rodio = { version = "0.17", optional = true, features = ["flac", "vorbis", "wav"], default-features = false }
 pollster = { version = "0.2" }
 winit = { version = "0.27", optional = true }
 

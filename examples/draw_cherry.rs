@@ -73,7 +73,7 @@ mod internal {
     }
 
     pub async fn run() {
-        let resolution = [512, 256];
+        let resolution = Vec2::new([512, 256]);
 
         let (window, event_loop) =
             jamjar::windowing::window_and_event_loop("draw_cherry", [512, 256]).unwrap();
@@ -91,7 +91,7 @@ mod internal {
                 .expect("failed to add canvas to document body");
         }
 
-        let canvas_config = jamjar::draw::CanvasConfig::set_scaled(resolution);
+        let canvas_config = jamjar::draw::CanvasConfig::set_scaled(resolution.as_f32().0);
         let mut context = jamjar::draw::cherry::DrawContext::<Image, Mesh, ()>::new(
             &window,
             canvas_config,
