@@ -151,7 +151,7 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
 
         #[cfg(target_arch = "wasm32")]
         {
-            let speaker = Speaker::new(audio_library, audio_volumes, feedback_buffer_ref);
+            let speaker = Speaker::new(feedback_buffer_ref);
             Mixer {
                 speaker,
                 _thread: None,

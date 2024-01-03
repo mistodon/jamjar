@@ -13,7 +13,7 @@ use crate::{
     color,
     draw::{CanvasConfig, Depth, D},
     font::Glyph,
-    layout::{Anchor, Frame},
+    layout::{Anchor, Frame, Pivot},
     math::*,
     mesh::{Mesh, Submeshes, Vertex},
     utils::Flag,
@@ -206,24 +206,36 @@ impl Default for BasicPush {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpriteParams {
     pub pos: [f32; 2],
+    pub pivot: Pivot,
     pub depth: Depth,
     pub pixelly: bool,
     pub tint: [f32; 4],
     pub emission: [f32; 4],
     pub cel: ([usize; 2], [usize; 2]),
-    pub size: Option<[f32; 2]>,
+    pub size: Size,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum Size {
+    #[default]
+    Default,
+    Set([f32; 2]),
+    SetWidth(f32),
+    SetHeight(f32),
+    Scaled([f32; 2]),
 }
 
 impl Default for SpriteParams {
     fn default() -> Self {
         SpriteParams {
             pos: [0., 0.],
+            pivot: Pivot::TL,
             depth: 0 * D,
             pixelly: true,
             tint: color::WHITE,
             emission: color::TRANS,
             cel: ([0, 0], [1, 1]),
-            size: None,
+            size: Size::Default,
         }
     }
 }
@@ -1319,7 +1331,7 @@ where
     }
 
     fn render_frame(&mut self, frame: wgpu::SurfaceTexture) {
-        if self.camera_pass.used {
+        if self.camera_pass.used || self.camera_passes.is_empty() {
             self.end_camera_pass();
         }
 
@@ -1783,16 +1795,26 @@ where
         let [x, y] = params.pos;
         let [w, h] = region.size();
         let [cels_x, cels_y] = params.cel.1;
-        let [w, h] = params
-            .size
-            .unwrap_or([w as f32 / cels_x as f32, h as f32 / cels_y as f32]);
+        let [def_w, def_h] = [w as f32 / cels_x as f32, h as f32 / cels_y as f32];
+
+        let [w, h] = match params.size {
+            Size::Default => [def_w, def_h],
+            Size::Set(size) => size,
+            Size::SetWidth(w) => [w, (w / def_w) * def_h],
+            Size::SetHeight(h) => [(h / def_h) * def_w, h],
+            Size::Scaled([scale_w, scale_h]) => [def_w * scale_w, def_h * scale_h],
+        };
+
+        let pw = params.pivot.0[0] * w;
+        let ph = params.pivot.0[1] * h;
+
         self.stored_draw_internal(
             BuiltinShader::YFlip,
             image,
             params.cel,
             BuiltinMesh::Sprite,
             MeshVariant::Raw,
-            (Mat4::translation([x, y, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
+            (Mat4::translation([x - pw, y - ph, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
             BasicPush {
                 tint: params.tint,
                 emission: params.emission,
@@ -1801,7 +1823,11 @@ where
             params.pixelly,
             Some(params.depth),
         );
-        Anchor::from([x, y]).frame([w, h])
+        Anchor {
+            pos: [x, y],
+            pivot: params.pivot,
+        }
+        .frame([w, h])
     }
 
     fn glyph_internal(

@@ -210,7 +210,7 @@ where
             let mut to_remove = vec![];
             for (submesh_key, (mesh_key, submeshes)) in self.submeshes.iter() {
                 if mesh_key.borrow() == key {
-                    to_remove.push(submesh_key.clone());
+                    to_remove.push(submesh_key);
                     self.free_index_ranges.push(submeshes.index_range.clone());
                 }
             }

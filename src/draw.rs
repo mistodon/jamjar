@@ -166,8 +166,14 @@ impl Default for CanvasMode {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ResizeMode {
     Free,
-    SetLogical([u32; 2]),
+    SetLogical([f32; 2]),
+    SetLogicalWidth(f32),
+    SetLogicalHeight(f32),
+    SetLogicalMin(f32),
     SetPhysical([u32; 2]),
+    SetPhysicalWidth(u32),
+    SetPhysicalHeight(u32),
+    SetPhysicalMin(u32),
     Aspect([u32; 2]),
 }
 
@@ -179,7 +185,7 @@ impl Default for ResizeMode {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScaleMode {
-    Set(f64),
+    Set(f32),
     Max,
     MaxInt,
 }
@@ -193,7 +199,7 @@ impl Default for ScaleMode {
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct CanvasProperties {
     pub physical_canvas_size: [u32; 2],
-    pub logical_canvas_size: [u32; 2],
+    pub logical_canvas_size: [f32; 2],
     pub viewport_scissor_rect: ([i16; 2], [i16; 2]),
 }
 
@@ -205,7 +211,7 @@ pub struct CanvasConfig {
 }
 
 impl CanvasConfig {
-    pub fn fixed(resolution: [u32; 2]) -> Self {
+    pub fn fixed(resolution: [f32; 2]) -> Self {
         CanvasConfig {
             canvas_mode: CanvasMode::Direct,
             resize_mode: ResizeMode::SetLogical(resolution),
@@ -213,10 +219,34 @@ impl CanvasConfig {
         }
     }
 
-    pub fn set_scaled(resolution: [u32; 2]) -> Self {
+    pub fn set_scaled(resolution: [f32; 2]) -> Self {
         CanvasConfig {
             canvas_mode: CanvasMode::Direct,
             resize_mode: ResizeMode::SetLogical(resolution),
+            scale_mode: ScaleMode::Max,
+        }
+    }
+
+    pub fn set_width(width: f32) -> Self {
+        CanvasConfig {
+            canvas_mode: CanvasMode::Direct,
+            resize_mode: ResizeMode::SetLogicalWidth(width),
+            scale_mode: ScaleMode::Max,
+        }
+    }
+
+    pub fn set_height(height: f32) -> Self {
+        CanvasConfig {
+            canvas_mode: CanvasMode::Direct,
+            resize_mode: ResizeMode::SetLogicalHeight(height),
+            scale_mode: ScaleMode::Max,
+        }
+    }
+
+    pub fn set_min(size: f32) -> Self {
+        CanvasConfig {
+            canvas_mode: CanvasMode::Direct,
+            resize_mode: ResizeMode::SetLogicalMin(size),
             scale_mode: ScaleMode::Max,
         }
     }
@@ -235,55 +265,102 @@ impl CanvasConfig {
         physical_window_size: [u32; 2],
         scale_factor: f64,
     ) -> CanvasProperties {
+        // TODO: Fix rounding errors when scaling int sizes (esp small ints)
         let s = scale_factor;
         let [pw, ph] = physical_window_size;
-        let logical_window_size = [
-            (pw as f64 / scale_factor) as u32,
-            (ph as f64 / scale_factor) as u32,
-        ];
+        let [pw, ph] = [pw as f64, ph as f64];
+        let logical_window_size = [pw / scale_factor, ph / scale_factor];
+        let window_aspect = pw / ph;
+        let i_window_aspect = 1. / window_aspect;
 
-        fn fit_in(inner_size: [u32; 2], outer_size: [u32; 2]) -> [u32; 2] {
+        fn fit_in(inner_size: [f64; 2], outer_size: [f64; 2]) -> [f64; 2] {
             let [ow, oh] = outer_size;
             let [iw, ih] = inner_size;
-            let scaled_width = std::cmp::min(ow, (oh * iw) / ih);
-            let scaled_height = std::cmp::min(oh, (ow * ih) / iw);
+            let scaled_width = ow.min((oh * iw) / ih);
+            let scaled_height = oh.min((ow * ih) / iw);
             [scaled_width, scaled_height]
         }
 
-        let [cw, ch] = match self.resize_mode {
-            ResizeMode::Free => physical_window_size,
-            ResizeMode::SetLogical([w, h]) => [(w as f64 * s) as u32, (h as f64 * s) as u32],
-            ResizeMode::SetPhysical(res) => res,
-            ResizeMode::Aspect(aspect_ratio) => fit_in(aspect_ratio, physical_window_size),
+        let physical_canvas_size: [f64; 2] = match self.resize_mode {
+            ResizeMode::Free => [
+                physical_window_size[0] as f64,
+                physical_window_size[1] as f64,
+            ],
+            ResizeMode::SetLogical([w, h]) => [w as f64 * s, h as f64 * s],
+            ResizeMode::SetLogicalWidth(w) => [w as f64 * s, w as f64 * s * i_window_aspect],
+            ResizeMode::SetLogicalHeight(h) => [h as f64 * s * window_aspect, h as f64 * s],
+            ResizeMode::SetLogicalMin(v) => {
+                let v = v as f64 * s;
+                match pw > ph {
+                    true => [v * window_aspect, v],
+                    false => [v, v * i_window_aspect],
+                }
+            }
+            ResizeMode::SetPhysical(res) => [res[0] as f64, res[1] as f64],
+            ResizeMode::SetPhysicalWidth(w) => [w as f64, w as f64 * i_window_aspect],
+            ResizeMode::SetPhysicalHeight(h) => [h as f64 * window_aspect, h as f64],
+            ResizeMode::SetPhysicalMin(v) => match pw > ph {
+                true => [v as f64 * window_aspect, v as f64],
+                false => [v as f64, v as f64 * i_window_aspect],
+            },
+            ResizeMode::Aspect(aspect_ratio) => {
+                let [w, h] = fit_in([aspect_ratio[0] as f64, aspect_ratio[1] as f64], [pw, ph]);
+                [w as f64, h as f64]
+            }
         };
 
-        let logical_canvas_size = match self.resize_mode {
+        let [cw, ch] = physical_canvas_size;
+
+        let logical_canvas_size: [f64; 2] = match self.resize_mode {
             ResizeMode::Free => logical_window_size,
-            ResizeMode::SetLogical(res) => res,
-            ResizeMode::SetPhysical(res) => res,
-            ResizeMode::Aspect(aspect_ratio) => fit_in(aspect_ratio, logical_window_size),
+            ResizeMode::SetLogical(res) => [res[0] as f64, res[1] as f64],
+            ResizeMode::SetLogicalWidth(w) => [w as f64, w as f64 * i_window_aspect],
+            ResizeMode::SetLogicalHeight(h) => [h as f64 * window_aspect, h as f64],
+            ResizeMode::SetLogicalMin(v) => match pw > ph {
+                true => [v as f64 * window_aspect, v as f64],
+                false => [v as f64, v as f64 * i_window_aspect],
+            },
+            ResizeMode::SetPhysical(res) => [res[0] as f64, res[1] as f64],
+            ResizeMode::SetPhysicalWidth(w) => [w as f64, w as f64 * i_window_aspect],
+            ResizeMode::SetPhysicalHeight(h) => [h as f64 * window_aspect, h as f64],
+            ResizeMode::SetPhysicalMin(v) => match pw > ph {
+                true => [v as f64 * window_aspect, v as f64],
+                false => [v as f64, v as f64 * i_window_aspect],
+            },
+            ResizeMode::Aspect(aspect_ratio) => fit_in(
+                [aspect_ratio[0] as f64, aspect_ratio[1] as f64],
+                logical_window_size,
+            ),
         };
 
-        let [vw, vh] = match self.scale_mode {
-            ScaleMode::Set(scale) => [(cw as f64 * scale) as u32, (ch as f64 * scale) as u32],
-            ScaleMode::Max => fit_in([cw, ch], physical_window_size),
+        let physical_viewport_size: [u32; 2] = match self.scale_mode {
+            ScaleMode::Set(scale) => [(cw * scale as f64) as u32, (ch * scale as f64) as u32],
+            ScaleMode::Max => {
+                let fit = fit_in([cw, ch], [pw, ph]);
+                [fit[0] as u32, fit[1] as u32]
+            }
             ScaleMode::MaxInt => {
-                let scale = std::cmp::min(pw as u32 / cw, ph as u32 / ch);
+                let scale = (pw / cw).min(ph / ch);
                 match scale {
-                    x if x > 0 => [cw * scale, ch * scale],
-                    _ => fit_in([cw, ch], physical_window_size),
+                    x if x > 0. => [(cw * scale) as u32, (ch * scale) as u32],
+                    _ => {
+                        let fit = fit_in([cw, ch], [pw, ph]);
+                        [fit[0] as u32, fit[1] as u32]
+                    }
                 }
             }
         };
 
+        let [vw, vh] = physical_viewport_size;
+
         let viewport_inset = [
-            (pw.saturating_sub(vw)) as i16 / 2,
-            (ph.saturating_sub(vh)) as i16 / 2,
+            (physical_window_size[0].saturating_sub(vw)) as i16 / 2,
+            (physical_window_size[1].saturating_sub(vh)) as i16 / 2,
         ];
 
         CanvasProperties {
-            physical_canvas_size: [cw, ch],
-            logical_canvas_size,
+            physical_canvas_size: [cw as u32, ch as u32],
+            logical_canvas_size: [logical_canvas_size[0] as f32, logical_canvas_size[1] as f32],
             viewport_scissor_rect: (viewport_inset, [vw as i16, vh as i16]),
         }
     }
