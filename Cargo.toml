@@ -80,7 +80,7 @@ wgpu = { version = "0.16", features = ["webgl"], optional = true }
 [dependencies.glace]
 version = "0.2"
 git = "https://github.com/mistodon/glace"
-rev = "60c4631"
+rev = "5610a01"
 optional = true
 
 [dependencies.okmath]

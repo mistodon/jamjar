@@ -1,28 +1,34 @@
-#[derive(Debug, Clone, Copy)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum LoopMode {
     Off,
     Record,
     Playback(usize),
 }
 
-#[derive(Debug, Clone)]
-pub struct LoopRecording<StartState: Clone, FrameInput: Clone> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopRecording<StartState: Clone, FrameInput: Clone + PartialEq> {
     pub start_state: StartState,
-    pub frame_inputs: Vec<FrameInput>,
+    pub frame_inputs: RleVec<FrameInput>,
 }
 
-#[derive(Debug, Clone)]
-pub struct LoopState<StartState: Clone, FrameInput: Clone> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopState<StartState: Clone, FrameInput: Clone + PartialEq> {
     mode: LoopMode,
     recording: Option<LoopRecording<StartState, FrameInput>>,
 }
 
-impl<S: Clone, F: Clone> LoopState<S, F> {
+impl<S: Clone, F: Clone + PartialEq> LoopState<S, F> {
     pub fn new() -> Self {
         LoopState {
             mode: LoopMode::Off,
             recording: None,
         }
+    }
+
+    pub fn loop_recording(&self) -> Option<&LoopRecording<S, F>> {
+        self.recording.as_ref()
     }
 
     pub fn recorded_frames(&self) -> Option<usize> {
@@ -63,7 +69,7 @@ impl<S: Clone, F: Clone> LoopState<S, F> {
         }
         self.recording = Some(LoopRecording {
             start_state: state.clone(),
-            frame_inputs: Vec::with_capacity(600),
+            frame_inputs: RleVec::with_capacity(8),
         });
         self.mode = LoopMode::Record;
     }
@@ -116,5 +122,135 @@ impl<S: Clone, F: Clone> LoopState<S, F> {
                 result
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RleVec<V: PartialEq> {
+    pub counts: Vec<usize>,
+    pub values: Vec<V>,
+}
+
+impl<V: PartialEq> Default for RleVec<V> {
+    fn default() -> Self {
+        RleVec::new()
+    }
+}
+
+impl<V: PartialEq> RleVec<V> {
+    pub fn new() -> Self {
+        RleVec {
+            counts: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        RleVec {
+            counts: Vec::with_capacity(cap),
+            values: Vec::with_capacity(cap),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.counts.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.counts.iter().sum()
+    }
+
+    pub fn push(&mut self, value: V) {
+        if Some(&value) == self.values.last() {
+            *self.counts.last_mut().unwrap() += 1;
+        } else {
+            self.counts.push(1);
+            self.values.push(value);
+        }
+    }
+}
+
+impl<V: PartialEq> std::ops::Index<usize> for RleVec<V> {
+    type Output = V;
+
+    fn index(&self, index: usize) -> &V {
+        let mut total = 0;
+        for (i, count) in self.counts.iter().copied().enumerate() {
+            total += count;
+            if index < total {
+                return &self.values[i];
+            }
+        }
+        panic!("index out of bounds: the len is {} but the index is {}", self.len(), index);
+    }
+}
+
+#[cfg(test)]
+mod rlevec_tests {
+    use super::*;
+
+    #[test]
+    fn size_tests() {
+        let mut v: RleVec<char> = RleVec::new();
+        assert_eq!(v.len(), 0);
+        assert!(v.is_empty());
+
+        v.push('a');
+        assert_eq!(v.len(), 1);
+        assert!(!v.is_empty());
+
+        v.push('a');
+        assert_eq!(v.len(), 2);
+
+        v.push('b');
+        assert_eq!(v.len(), 3);
+
+        v.push('a');
+        assert_eq!(v.len(), 4);
+    }
+
+    #[test]
+    fn content_tests() {
+        let mut v: RleVec<char> = RleVec::new();
+
+        v.push('a');
+        assert_eq!(v, RleVec {
+            counts: vec![1],
+            values: vec!['a'],
+        });
+
+        v.push('a');
+        assert_eq!(v, RleVec {
+            counts: vec![2],
+            values: vec!['a'],
+        });
+
+        v.push('b');
+        assert_eq!(v, RleVec {
+            counts: vec![2, 1],
+            values: vec!['a', 'b'],
+        });
+
+        v.push('a');
+        assert_eq!(v, RleVec {
+            counts: vec![2, 1, 1],
+            values: vec!['a', 'b', 'a'],
+        });
+    }
+
+    #[test]
+    fn index_tests() {
+        let mut v: RleVec<char> = RleVec::new();
+        v.push('a');
+        v.push('a');
+        v.push('b');
+        v.push('a');
+        v.push('c');
+
+        assert_eq!(v[0], 'a');
+        assert_eq!(v[1], 'a');
+        assert_eq!(v[2], 'b');
+        assert_eq!(v[3], 'a');
+        assert_eq!(v[4], 'c');
     }
 }
