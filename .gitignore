@@ -3,3 +3,4 @@
 **/jamjar_web_build
 **/*.rs.bk
 /examples/src/gen/*
+/Cargo.lock
