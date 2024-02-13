@@ -3,6 +3,8 @@ use wasm_bindgen::prelude::*;
 
 use std::marker::PhantomData;
 
+use serde::{Serialize, Deserialize};
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(inline_js = r#"
 export function _system_secs_f64() {
@@ -20,13 +22,13 @@ fn _system_secs_f64() -> f64 {
         .as_secs_f64()
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct LogicTime;
 
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct RealTime;
 
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct Timestamp<T>(f64, PhantomData<T>);
 
 impl<T> Default for Timestamp<T> {
@@ -57,7 +59,7 @@ impl<T> Timestamp<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clock<T>(f64, PhantomData<T>);
 
 impl<T> Clock<T> {
