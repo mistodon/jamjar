@@ -31,7 +31,7 @@ impl<S: Clone, F: Clone + PartialEq> LoopState<S, F> {
         self.recording.as_ref()
     }
 
-    pub fn set_recording(&mut self, recording: LoopRecording<StartState, FrameInput>) {
+    pub fn set_recording(&mut self, recording: LoopRecording<S, F>) {
         self.recording = Some(recording);
     }
 
