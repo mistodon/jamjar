@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum LoopMode {
@@ -27,8 +27,12 @@ impl<S: Clone, F: Clone + PartialEq> LoopState<S, F> {
         }
     }
 
-    pub fn loop_recording(&self) -> Option<&LoopRecording<S, F>> {
+    pub fn get_recording(&self) -> Option<&LoopRecording<S, F>> {
         self.recording.as_ref()
+    }
+
+    pub fn set_recording(&mut self, recording: LoopRecording<StartState, FrameInput>) {
+        self.recording = Some(recording);
     }
 
     pub fn recorded_frames(&self) -> Option<usize> {
@@ -181,7 +185,11 @@ impl<V: PartialEq> std::ops::Index<usize> for RleVec<V> {
                 return &self.values[i];
             }
         }
-        panic!("index out of bounds: the len is {} but the index is {}", self.len(), index);
+        panic!(
+            "index out of bounds: the len is {} but the index is {}",
+            self.len(),
+            index
+        );
     }
 }
 
@@ -214,28 +222,40 @@ mod rlevec_tests {
         let mut v: RleVec<char> = RleVec::new();
 
         v.push('a');
-        assert_eq!(v, RleVec {
-            counts: vec![1],
-            values: vec!['a'],
-        });
+        assert_eq!(
+            v,
+            RleVec {
+                counts: vec![1],
+                values: vec!['a'],
+            }
+        );
 
         v.push('a');
-        assert_eq!(v, RleVec {
-            counts: vec![2],
-            values: vec!['a'],
-        });
+        assert_eq!(
+            v,
+            RleVec {
+                counts: vec![2],
+                values: vec!['a'],
+            }
+        );
 
         v.push('b');
-        assert_eq!(v, RleVec {
-            counts: vec![2, 1],
-            values: vec!['a', 'b'],
-        });
+        assert_eq!(
+            v,
+            RleVec {
+                counts: vec![2, 1],
+                values: vec!['a', 'b'],
+            }
+        );
 
         v.push('a');
-        assert_eq!(v, RleVec {
-            counts: vec![2, 1, 1],
-            values: vec!['a', 'b', 'a'],
-        });
+        assert_eq!(
+            v,
+            RleVec {
+                counts: vec![2, 1, 1],
+                values: vec!['a', 'b', 'a'],
+            }
+        );
     }
 
     #[test]
