@@ -340,7 +340,7 @@ impl CanvasConfig {
                 [fit[0] as u32, fit[1] as u32]
             }
             ScaleMode::MaxInt => {
-                let scale = (pw / cw).min(ph / ch);
+                let scale = (pw / cw).min(ph / ch).floor();
                 match scale {
                     x if x > 0. => [(cw * scale) as u32, (ch * scale) as u32],
                     _ => {

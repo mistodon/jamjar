@@ -2,6 +2,12 @@
 
 Must:
 
+For cherry:
+- [ ] Example of different scaling modes
+- [ ] Changing canvas config between camera passes
+    - [ ] Allow changing it permanently (on the context)
+    - [ ] But also just changing it for the current frame (on the renderer)
+
 Should:
 - [ ] Only upload changed portions of textures
 

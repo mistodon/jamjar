@@ -2,8 +2,9 @@
 use wasm_bindgen::prelude::*;
 
 use std::marker::PhantomData;
+use std::time::{Duration, Instant};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(inline_js = r#"
@@ -114,3 +115,30 @@ pub type LogicClock = Clock<LogicTime>;
 pub type LogicTimestamp = Timestamp<LogicTime>;
 pub type RealClock = Clock<RealTime>;
 pub type RealTimestamp = Timestamp<RealTime>;
+
+pub struct FramePacer {
+    frame_time: Instant,
+}
+
+impl FramePacer {
+    pub fn new() -> FramePacer {
+        FramePacer {
+            frame_time: Instant::now(),
+        }
+    }
+
+    pub fn deadline_for_fps(&mut self, fps: f64) -> Instant {
+        let now = Instant::now();
+
+        let target_frame_duration = 1. / fps;
+        let frame_deadline = self.frame_time + Duration::from_secs_f64(target_frame_duration);
+
+        if now < frame_deadline {
+            self.frame_time = frame_deadline;
+        } else {
+            self.frame_time = now;
+        }
+
+        frame_deadline
+    }
+}

@@ -1,8 +1,11 @@
-use std::any::TypeId;
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::ops::Range;
+use std::{
+    any::TypeId,
+    borrow::Cow,
+    collections::HashMap,
+    hash::Hash,
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 use hvec::HVec;
 use image::RgbaImage;
@@ -57,6 +60,12 @@ pub struct RenderStats {
     pub uniform_bytes: usize,
 
     pub total_cpu_bytes: usize,
+
+    pub frame_time: Duration,
+    pub prepare_time: Duration,
+    pub render_time: Duration,
+    pub submit_time: Duration,
+    pub present_time: Duration,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -316,6 +325,7 @@ fn push_constant_size(overhead: usize, conf: ShaderConf) -> usize {
 
 #[derive(Debug, Clone)]
 struct CameraPass {
+    canvas_config: CanvasConfig,
     view: Mat4<f32>,
     projection: Mat4<f32>,
     vp_matrix: Mat4<f32>,
@@ -419,6 +429,7 @@ where
     shader_mapping: HashMap<ShaderAssetKey<ShaderKey>, u8>,
     pipelines: Vec<PipelineEntry>,
 
+    time_prev_frame_submit: Option<Instant>,
     frame_stats: RenderStats,
 }
 
@@ -471,7 +482,7 @@ where
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![swapchain_format],
         };
@@ -700,6 +711,7 @@ where
             shader_mapping: Default::default(),
             pipelines: Default::default(),
 
+            time_prev_frame_submit: None,
             frame_stats: RenderStats::default(),
         };
 
@@ -803,7 +815,14 @@ where
             Event::WindowEvent {
                 event: WindowEvent::Resized(dims),
                 ..
-            } => self.resized((*dims).into()),
+            } => {
+                let max_dim = (std::u16::MAX / 4) as u32;
+                if dims.width <= max_dim && dims.height <= max_dim {
+                    self.resized((*dims).into())
+                } else {
+                    eprintln!("Resize exceeded max size of {}\n({:?})", max_dim, dims);
+                }
+            }
             Event::WindowEvent {
                 event:
                     WindowEvent::ScaleFactorChanged {
@@ -831,6 +850,18 @@ where
 
     pub fn scale_factor(&self) -> f64 {
         self.scale_factor
+    }
+
+    pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
+        self.canvas_config = canvas_config;
+    }
+
+    pub fn set_vsync(&mut self, vsync: bool) {
+        self.surface_config.present_mode = match vsync {
+            true => wgpu::PresentMode::AutoVsync,
+            false => wgpu::PresentMode::AutoNoVsync,
+        };
+        self.surface_invalidated.set();
     }
 
     pub fn canvas_properties(&self) -> crate::draw::CanvasProperties {
@@ -1246,6 +1277,8 @@ where
     ) -> Renderer<ImageKey, MeshKey, ShaderKey> {
         self.prepare_for_frame();
 
+        let canvas_config = self.canvas_config.clone();
+
         Renderer {
             context: self,
             clear_color,
@@ -1253,6 +1286,7 @@ where
             cursor_pos,
             camera_passes: Vec::with_capacity(4),
             camera_pass: CameraPass {
+                canvas_config,
                 view: Mat4::identity(),
                 projection: Mat4::identity(),
                 vp_matrix: Mat4::identity(),
@@ -1267,6 +1301,11 @@ where
             push_constants: vec![],
             uniform_indices: HashMap::default(),
             uniform_bytes: HashMap::default(),
+            time_created: Instant::now(),
+            time_render_start: Instant::now(),
+            time_render_end: Instant::now(),
+            time_submit: Instant::now(),
+            time_present: Instant::now(),
         }
     }
 }
@@ -1289,6 +1328,11 @@ where
     push_constants: Vec<u8>,
     uniform_indices: HashMap<*const u8, u8>,
     uniform_bytes: HashMap<TypeId, (usize, Vec<u8>)>,
+    time_created: Instant,
+    time_render_start: Instant,
+    time_render_end: Instant,
+    time_submit: Instant,
+    time_present: Instant,
 }
 
 impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
@@ -1331,8 +1375,10 @@ where
     }
 
     fn render_frame(&mut self, frame: wgpu::SurfaceTexture) {
+        self.time_render_start = Instant::now();
+
         if self.camera_pass.used || self.camera_passes.is_empty() {
-            self.end_camera_pass();
+            self.end_camera_pass(None);
         }
 
         let mut stats = RenderStats {
@@ -1359,6 +1405,11 @@ where
                 .map(|(_, v)| v.len())
                 .sum::<usize>(),
             total_cpu_bytes: 0,
+            frame_time: Duration::default(),
+            prepare_time: Duration::default(),
+            render_time: Duration::default(),
+            submit_time: Duration::default(),
+            present_time: Duration::default(),
         };
         stats.total_cpu_bytes = stats.opaque_bytes
             + stats.transparent_bytes
@@ -1385,16 +1436,17 @@ where
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let canvas_properties = self.context.canvas_config.canvas_properties(
-            [
-                self.context.surface_config.width,
-                self.context.surface_config.height,
-            ],
-            self.context.scale_factor,
-        );
-
         // Passes
         for (i, camera_pass) in self.camera_passes.iter().enumerate() {
+
+            let canvas_properties = camera_pass.canvas_config.canvas_properties(
+                [
+                    self.context.surface_config.width,
+                    self.context.surface_config.height,
+                ],
+                self.context.scale_factor,
+            );
+
             let [r, g, b, a] = self.clear_color;
 
             let clear_op = wgpu::Operations {
@@ -1531,18 +1583,31 @@ where
                 }
             }
         }
+        self.time_render_end = Instant::now();
 
         self.context.queue.submit(Some(commands.finish()));
-        frame.present();
+        self.time_submit = Instant::now();
 
+        frame.present();
+        self.time_present = Instant::now();
+
+        if let Some(prev_submit) = self.context.time_prev_frame_submit {
+            stats.frame_time = self.time_submit - prev_submit;
+        }
+        self.context.time_prev_frame_submit = Some(self.time_submit);
+
+        stats.prepare_time = self.time_render_start - self.time_created;
+        stats.render_time = self.time_render_end - self.time_render_start;
+        stats.submit_time = self.time_submit - self.time_render_end;
+        stats.present_time = self.time_present - self.time_submit;
         self.context.frame_stats = stats;
     }
 
     fn prepare_glyphs(&mut self) {
         let mut glyph_iter = self.glyph_buffer.iter();
-        while let Some(ctx) = glyph_iter.next::<GlyphCtx>() {
+        while let Some(ctx) = unsafe { glyph_iter.next_unchecked::<GlyphCtx>() } {
             for _ in 0..ctx.count {
-                let glyph = glyph_iter.next::<Glyph>().unwrap();
+                let glyph = unsafe { glyph_iter.next_unchecked::<Glyph>().unwrap() };
                 self.context.font_atlas.insert(glyph.clone());
             }
         }
@@ -1576,9 +1641,9 @@ where
         let mut glyph_buffer =
             std::mem::replace(&mut self.glyph_buffer, HVec::with_capacity(128, 128)).into_iter();
 
-        while let Some(ctx) = glyph_buffer.next::<GlyphCtx>() {
+        while let Some(ctx) = unsafe { glyph_buffer.next_unchecked::<GlyphCtx>() } {
             for i in 0..ctx.count {
-                let glyph = glyph_buffer.next::<Glyph>().unwrap();
+                let glyph = unsafe { glyph_buffer.next_unchecked::<Glyph>().unwrap() };
                 let draw_call_index = ctx.draw_call_index + i as usize;
                 self.glyph_internal(draw_call_index, &glyph, ctx.tint, ctx.vp_matrix);
             }
@@ -1618,9 +1683,11 @@ where
         }
     }
 
-    fn end_camera_pass(&mut self) {
+    fn end_camera_pass(&mut self, canvas_config: Option<CanvasConfig>) {
         let current = &self.camera_pass;
+        let canvas_config = canvas_config.unwrap_or_else(|| current.canvas_config.clone());
         let new_pass = CameraPass {
+            canvas_config,
             view: current.view,
             projection: current.projection,
             vp_matrix: current.vp_matrix,
@@ -1673,7 +1740,7 @@ where
                 .push((global_buffer, global_bindings));
         }
 
-        let canvas_properties = self.context.canvas_config.canvas_properties(
+        let canvas_properties = camera_pass.canvas_config.canvas_properties(
             [
                 self.context.surface_config.width,
                 self.context.surface_config.height,
@@ -1710,7 +1777,7 @@ where
 
     fn update_matrices(&mut self, view: Mat4<f32>, projection: Mat4<f32>) {
         if self.camera_pass.used {
-            self.end_camera_pass();
+            self.end_camera_pass(None);
         }
 
         self.camera_pass.view = view;
@@ -1724,6 +1791,13 @@ where
 
     pub fn reset_view(&mut self) {
         self.set_view(Mat4::identity().0);
+    }
+
+    pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
+        if self.camera_pass.used {
+            self.end_camera_pass(Some(canvas_config.clone())); // TODO: hmmm...
+        }
+        self.camera_pass.canvas_config = canvas_config;
     }
 
     pub fn set_projection(&mut self, matrix: [[f32; 4]; 4]) {
@@ -1748,11 +1822,11 @@ where
     }
 
     pub fn ortho_2d(&mut self) {
-        let canvas_properties = self.context.canvas_config.canvas_properties(
-            [
+        let canvas_properties = self.camera_pass.canvas_config.canvas_properties(
+            dbg!([
                 self.context.surface_config.width,
                 self.context.surface_config.height,
-            ],
+            ]),
             self.context.scale_factor,
         );
 
@@ -1768,7 +1842,7 @@ where
     }
 
     pub fn perspective_3d(&mut self, fov: f32) {
-        let canvas_properties = self.context.canvas_config.canvas_properties(
+        let canvas_properties = self.camera_pass.canvas_config.canvas_properties(
             [
                 self.context.surface_config.width,
                 self.context.surface_config.height,
