@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     hash::Hash,
     ops::Range,
-    time::{Duration, Instant},
+    sync::Arc,
 };
 
 use hvec::HVec;
@@ -19,12 +19,17 @@ use crate::{
     layout::{Anchor, Frame, Pivot},
     math::*,
     mesh::{Mesh, Submeshes, Vertex},
+    timing::_system_secs_f64,
     utils::Flag,
     windowing::{
         event::{Event, WindowEvent},
         window::Window,
     },
 };
+
+fn _now() -> f64 {
+    _system_secs_f64()
+}
 
 const SHADER_HEADER: &'static str = include_str!("cherry_shaders/header.wgsl");
 const BUILTIN_SHADER: &'static str = include_str!("cherry_shaders/builtin.wgsl");
@@ -41,8 +46,11 @@ const MAX_VERTICES: usize = 65536;
 #[cfg(target_arch = "wasm32")]
 const MAX_VERTICES: usize = 10000;
 
+// defer create surface const (true on android)
+
 #[derive(Debug, Default, Clone)]
 pub struct RenderStats {
+    pub frame: usize,
     pub camera_passes: usize,
     pub pipeline_changes: usize,
     pub binding_changes: usize,
@@ -61,11 +69,11 @@ pub struct RenderStats {
 
     pub total_cpu_bytes: usize,
 
-    pub frame_time: Duration,
-    pub prepare_time: Duration,
-    pub render_time: Duration,
-    pub submit_time: Duration,
-    pub present_time: Duration,
+    pub frame_time: f64,
+    pub prepare_time: f64,
+    pub render_time: f64,
+    pub submit_time: f64,
+    pub present_time: f64,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -398,7 +406,7 @@ where
     texture_pages: u8,
 
     instance: wgpu::Instance,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -413,10 +421,10 @@ where
 
     globals_layout: wgpu::BindGroupLayout,
     sampling_layout: wgpu::BindGroupLayout,
-    custom_layouts: HashMap<TypeId, wgpu::BindGroupLayout>,
+    custom_layouts: HashMap<ShaderAssetKey<ShaderKey>, wgpu::BindGroupLayout>,
     global_bindings: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     sampling_bindings: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
-    custom_bindings: HashMap<TypeId, Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
+    custom_bindings: HashMap<ShaderAssetKey<ShaderKey>, Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
 
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -427,10 +435,12 @@ where
     font_atlas: FontAtlas,
     font_atlas_image: RgbaImage,
     shader_mapping: HashMap<ShaderAssetKey<ShaderKey>, u8>,
-    pipelines: Vec<PipelineEntry>,
+    pipelines: Vec<(ShaderAssetKey<ShaderKey>, PipelineEntry)>,
 
-    time_prev_frame_submit: Option<Instant>,
+    time_prev_frame_submit: Option<f64>,
     frame_stats: RenderStats,
+
+    storage: FrameStorage<ShaderKey>,
 }
 
 impl<ImageKey, MeshKey, ShaderKey> DrawContext<ImageKey, MeshKey, ShaderKey>
@@ -440,14 +450,24 @@ where
     ShaderKey: Clone + Eq + Hash,
 {
     pub async fn new(
-        window: &Window,
+        window: &Arc<Window>,
         canvas_config: CanvasConfig,
         texture_size: u32,
         texture_pages: u8,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let texture_pages = texture_pages + 1; // Font texture
-        let instance = wgpu::Instance::default();
-        let surface = unsafe { instance.create_surface(&window).unwrap() };
+
+        let backends = match cfg!(target_arch = "wasm32") {
+            true => wgpu::Backends::GL,
+            false => wgpu::Backends::default(),
+        };
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
+
+        let surface = instance.create_surface(Arc::clone(&window)).unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -462,8 +482,8 @@ where
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::PUSH_CONSTANTS,
-                    limits: wgpu::Limits {
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    required_limits: wgpu::Limits {
                         max_push_constant_size: 256,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     }
@@ -477,14 +497,16 @@ where
         let swapchain_format = swapchain_capabilities.formats[0];
 
         let size = window.inner_size();
+        // assert!(size.width > 0 && size.height > 0, "Window must not be zero-sized ({:?})", &size);
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
-            width: size.width,
-            height: size.height,
+            width: std::cmp::max(100, size.width),
+            height: std::cmp::max(100, size.height),
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![swapchain_format],
+            desired_maximum_frame_latency: 2,
         };
         let scale_factor = window.scale_factor();
 
@@ -713,6 +735,8 @@ where
 
             time_prev_frame_submit: None,
             frame_stats: RenderStats::default(),
+
+            storage: FrameStorage::new(),
         };
 
         let quad_mesh = Mesh {
@@ -827,10 +851,10 @@ where
                 event:
                     WindowEvent::ScaleFactorChanged {
                         scale_factor,
-                        new_inner_size,
+                        inner_size_writer: _,
                     },
                 ..
-            } => self.scale_factor_changed(*scale_factor, (**new_inner_size).into()),
+            } => self.scale_factor_changed(*scale_factor, ()),
             _ => (),
         }
     }
@@ -841,9 +865,10 @@ where
         self.surface_invalidated.set();
     }
 
-    pub fn scale_factor_changed(&mut self, scale_factor: f64, new_inner_size: (u32, u32)) {
-        self.surface_config.width = new_inner_size.0;
-        self.surface_config.height = new_inner_size.1;
+    pub fn scale_factor_changed(&mut self, scale_factor: f64, _new_inner_size: ()) {
+        // TODO: idk man
+        // self.surface_config.width = new_inner_size.0;
+        // self.surface_config.height = new_inner_size.1;
         self.scale_factor = scale_factor;
         self.surface_invalidated.set();
     }
@@ -974,9 +999,9 @@ where
         self.load_shader_internal::<P, U>(AssetKey::Key(key), source.as_ref(), conf)
     }
 
-    fn register_uniform_type<U: 'static>(&mut self) {
+    fn register_uniform_type<U: 'static>(&mut self, name: ShaderAssetKey<ShaderKey>) {
         if std::mem::size_of::<U>() != 0 {
-            let key = TypeId::of::<U>();
+            let key = name;
 
             if !self.custom_layouts.contains_key(&key) {
                 let layout =
@@ -997,7 +1022,7 @@ where
                                 count: None,
                             }],
                         });
-                self.custom_layouts.insert(key, layout);
+                self.custom_layouts.insert(key.clone(), layout);
 
                 self.custom_bindings.insert(key, vec![]);
             }
@@ -1010,8 +1035,8 @@ where
         source: &str,
         conf: ShaderConf,
     ) {
-        self.register_uniform_type::<U>();
-        let uniforms_layout = self.custom_layouts.get(&TypeId::of::<U>());
+        self.register_uniform_type::<U>(name.clone());
+        let uniforms_layout = self.custom_layouts.get(&name);
 
         let bind_group_layouts = match uniforms_layout {
             None => vec![&self.globals_layout, &self.sampling_layout],
@@ -1092,6 +1117,7 @@ where
         let opaque_fragment = wgpu::FragmentState {
             module: &shader,
             entry_point: "fragment_main",
+            compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: self.swapchain_format,
                 blend: match (write_color, should_add) {
@@ -1109,6 +1135,7 @@ where
         let trans_fragment = wgpu::FragmentState {
             module: &shader,
             entry_point: "fragment_main",
+            compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: self.swapchain_format,
                 blend: match (write_color, should_add) {
@@ -1161,6 +1188,7 @@ where
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vertex_main",
+                    compilation_options: Default::default(),
                     buffers: &[vertex_buffer_layout.clone()],
                 },
                 fragment: Some(opaque_fragment),
@@ -1184,6 +1212,7 @@ where
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vertex_main",
+                    compilation_options: Default::default(),
                     buffers: &[vertex_buffer_layout.clone()],
                 },
                 fragment: Some(trans_fragment),
@@ -1200,8 +1229,8 @@ where
             });
 
         let shader_index = self.pipelines.len() as u8;
-        self.shader_mapping.insert(name, shader_index);
-        self.pipelines.push(PipelineEntry {
+        self.shader_mapping.insert(name.clone(), shader_index);
+        self.pipelines.push((name.clone(), PipelineEntry {
             layout: pipeline_layout,
             opaque: opaque_pipeline,
             trans: trans_pipeline,
@@ -1210,7 +1239,7 @@ where
             uniform_type: uniforms_layout.map(|_| TypeId::of::<U>()),
             uniform_size: std::mem::size_of::<U>(),
             conf,
-        });
+        }));
     }
 
     fn prepare_for_frame(&mut self) {
@@ -1284,7 +1313,6 @@ where
             clear_color,
             generic_params,
             cursor_pos,
-            camera_passes: Vec::with_capacity(4),
             camera_pass: CameraPass {
                 canvas_config,
                 view: Mat4::identity(),
@@ -1295,20 +1323,49 @@ where
                 opaque_call_range: 0..0,
                 trans_call_range: 0..0,
             },
+            time_created: _now(),
+            time_render_start: _now(),
+            time_render_end: _now(),
+            time_submit: _now(),
+            time_present: _now(),
+        }
+    }
+}
+
+struct FrameStorage<ShaderKey> {
+    pub camera_passes: Vec<CameraPass>,
+    pub opaque_calls: Vec<DrawCall>,
+    pub trans_calls: Vec<DrawCall>,
+    pub glyph_buffer: HVec,
+    pub push_constants: Vec<u8>,
+    pub uniform_indices: HashMap<*const u8, u8>,
+    pub uniform_bytes: HashMap<ShaderAssetKey<ShaderKey>, (usize, Vec<u8>)>,
+}
+
+impl<ShaderKey> FrameStorage<ShaderKey> {
+    pub fn new() -> Self {
+        FrameStorage {
+            camera_passes: Vec::with_capacity(4),
             opaque_calls: Vec::with_capacity(128),
             trans_calls: Vec::with_capacity(128),
             glyph_buffer: HVec::with_capacity(128, 128),
             push_constants: vec![],
             uniform_indices: HashMap::default(),
             uniform_bytes: HashMap::default(),
-            time_created: Instant::now(),
-            time_render_start: Instant::now(),
-            time_render_end: Instant::now(),
-            time_submit: Instant::now(),
-            time_present: Instant::now(),
         }
     }
+
+    pub fn clear(&mut self) {
+        self.camera_passes.clear();
+        self.opaque_calls.clear();
+        self.trans_calls.clear();
+        self.glyph_buffer.clear();
+        self.push_constants.clear();
+        self.uniform_indices.clear();
+        self.uniform_bytes.clear();
+    }
 }
+
 
 pub struct Renderer<'a, ImageKey, MeshKey, ShaderKey>
 where
@@ -1320,19 +1377,12 @@ where
     clear_color: [f32; 4],
     generic_params: [f32; 4],
     cursor_pos: [f32; 2],
-    camera_passes: Vec<CameraPass>,
     camera_pass: CameraPass,
-    opaque_calls: Vec<DrawCall>,
-    trans_calls: Vec<DrawCall>,
-    glyph_buffer: HVec,
-    push_constants: Vec<u8>,
-    uniform_indices: HashMap<*const u8, u8>,
-    uniform_bytes: HashMap<TypeId, (usize, Vec<u8>)>,
-    time_created: Instant,
-    time_render_start: Instant,
-    time_render_end: Instant,
-    time_submit: Instant,
-    time_present: Instant,
+    time_created: f64,
+    time_render_start: f64,
+    time_render_end: f64,
+    time_submit: f64,
+    time_present: f64,
 }
 
 impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
@@ -1375,19 +1425,20 @@ where
     }
 
     fn render_frame(&mut self, frame: wgpu::SurfaceTexture) {
-        self.time_render_start = Instant::now();
+        self.time_render_start = _now();
 
-        if self.camera_pass.used || self.camera_passes.is_empty() {
+        if self.camera_pass.used || self.context.storage.camera_passes.is_empty() {
             self.end_camera_pass(None);
         }
 
         let mut stats = RenderStats {
-            camera_passes: self.camera_passes.len(),
+            frame: self.context.frame_stats.frame + 1,
+            camera_passes: self.context.storage.camera_passes.len(),
             pipeline_changes: 0,
             binding_changes: 0,
             uniform_changes: 0,
-            opaque_objects: self.opaque_calls.len(),
-            transparent_objects: self.trans_calls.len(),
+            opaque_objects: self.context.storage.opaque_calls.len(),
+            transparent_objects: self.context.storage.trans_calls.len(),
             uniform_types: self.context.custom_bindings.len(),
             uniform_buffers: self
                 .context
@@ -1395,21 +1446,21 @@ where
                 .values()
                 .map(|v| v.len())
                 .sum::<usize>(),
-            opaque_bytes: self.opaque_calls.len() * std::mem::size_of::<DrawCall>(),
-            transparent_bytes: self.trans_calls.len() * std::mem::size_of::<DrawCall>(),
-            glyph_bytes: self.glyph_buffer.bytes_len(),
-            push_constant_bytes: self.push_constants.len(),
+            opaque_bytes: self.context.storage.opaque_calls.len() * std::mem::size_of::<DrawCall>(),
+            transparent_bytes: self.context.storage.trans_calls.len() * std::mem::size_of::<DrawCall>(),
+            glyph_bytes: self.context.storage.glyph_buffer.bytes_len(),
+            push_constant_bytes: self.context.storage.push_constants.len(),
             uniform_bytes: self
-                .uniform_bytes
+                .context.storage.uniform_bytes
                 .values()
                 .map(|(_, v)| v.len())
                 .sum::<usize>(),
             total_cpu_bytes: 0,
-            frame_time: Duration::default(),
-            prepare_time: Duration::default(),
-            render_time: Duration::default(),
-            submit_time: Duration::default(),
-            present_time: Duration::default(),
+            frame_time: 0.,
+            prepare_time: 0.,
+            render_time: 0.,
+            submit_time: 0.,
+            present_time: 0.,
         };
         stats.total_cpu_bytes = stats.opaque_bytes
             + stats.transparent_bytes
@@ -1421,10 +1472,10 @@ where
         self.upload_uniforms();
 
         // Sort calls
-        for camera_pass in &self.camera_passes {
+        for camera_pass in &self.context.storage.camera_passes {
             // NOTE: We have to sort opaques, just not by depth.
-            self.opaque_calls[camera_pass.opaque_call_range.clone()].sort();
-            self.trans_calls[camera_pass.trans_call_range.clone()].sort();
+            self.context.storage.opaque_calls[camera_pass.opaque_call_range.clone()].sort();
+            self.context.storage.trans_calls[camera_pass.trans_call_range.clone()].sort();
         }
 
         let frame_view = frame
@@ -1437,7 +1488,7 @@ where
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Passes
-        for (i, camera_pass) in self.camera_passes.iter().enumerate() {
+        for (i, camera_pass) in self.context.storage.camera_passes.iter().enumerate() {
 
             let canvas_properties = camera_pass.canvas_config.canvas_properties(
                 [
@@ -1456,12 +1507,12 @@ where
                     b: b.into(),
                     a: a.into(),
                 }),
-                store: true,
+                store: wgpu::StoreOp::Store,
             };
 
             let load_op = wgpu::Operations {
                 load: wgpu::LoadOp::Load,
-                store: true,
+                store: wgpu::StoreOp::Store,
             };
 
             for opaque in [true, false] {
@@ -1477,13 +1528,15 @@ where
                             view: self.context.depth_buffer.as_ref().unwrap(),
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
+                                store: wgpu::StoreOp::Store,
                             }),
                             stencil_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(0),
-                                store: true,
+                                store: wgpu::StoreOp::Store,
                             }),
                         }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
                     }),
                     false => commands.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
@@ -1496,13 +1549,15 @@ where
                             view: self.context.depth_buffer.as_ref().unwrap(),
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: false,
+                                store: wgpu::StoreOp::Discard,
                             }),
                             stencil_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: false,
+                                store: wgpu::StoreOp::Discard,
                             }),
                         }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
                     }),
                 };
 
@@ -1527,14 +1582,14 @@ where
                 let mut active_uniforms = None;
 
                 let calls = match opaque {
-                    true => &self.opaque_calls[camera_pass.opaque_call_range.clone()],
-                    false => &self.trans_calls[camera_pass.trans_call_range.clone()],
+                    true => &self.context.storage.opaque_calls[camera_pass.opaque_call_range.clone()],
+                    false => &self.context.storage.trans_calls[camera_pass.trans_call_range.clone()],
                 };
 
                 for call in calls {
                     if active_pipeline != Some(call.shader_index) {
                         stats.pipeline_changes += 1;
-                        let entry = &self.context.pipelines[call.shader_index as usize];
+                        let entry = &self.context.pipelines[call.shader_index as usize].1;
                         let pipeline = match opaque {
                             true => &entry.opaque,
                             false => &entry.trans,
@@ -1558,13 +1613,11 @@ where
                         if active_uniforms != call.uniforms_index {
                             stats.uniform_changes += 1;
 
-                            let uniform_type = &self.context.pipelines[call.shader_index as usize]
-                                .uniform_type
-                                .unwrap();
+                            let uniform_type_key = &self.context.pipelines[call.shader_index as usize].0;
 
                             pass.set_bind_group(
                                 2,
-                                &self.context.custom_bindings[uniform_type]
+                                &self.context.custom_bindings[uniform_type_key]
                                     [uniforms_index as usize]
                                     .1,
                                 &[],
@@ -1576,20 +1629,20 @@ where
                     pass.set_push_constants(
                         wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         0,
-                        &self.push_constants[call.push_range.clone()],
+                        &self.context.storage.push_constants[call.push_range.clone()],
                     );
 
                     pass.draw_indexed(call.index_range.clone(), 0, 0..1);
                 }
             }
         }
-        self.time_render_end = Instant::now();
+        self.time_render_end = _now();
 
         self.context.queue.submit(Some(commands.finish()));
-        self.time_submit = Instant::now();
+        self.time_submit = _now();
 
         frame.present();
-        self.time_present = Instant::now();
+        self.time_present = _now();
 
         if let Some(prev_submit) = self.context.time_prev_frame_submit {
             stats.frame_time = self.time_submit - prev_submit;
@@ -1604,7 +1657,7 @@ where
     }
 
     fn prepare_glyphs(&mut self) {
-        let mut glyph_iter = self.glyph_buffer.iter();
+        let mut glyph_iter = self.context.storage.glyph_buffer.iter();
         while let Some(ctx) = unsafe { glyph_iter.next_unchecked::<GlyphCtx>() } {
             for _ in 0..ctx.count {
                 let glyph = unsafe { glyph_iter.next_unchecked::<Glyph>().unwrap() };
@@ -1638,8 +1691,9 @@ where
             }
         }
 
+        // TODO: It would be good if we could re-use the HVec
         let mut glyph_buffer =
-            std::mem::replace(&mut self.glyph_buffer, HVec::with_capacity(128, 128)).into_iter();
+            std::mem::replace(&mut self.context.storage.glyph_buffer, HVec::with_capacity(128, 128)).into_iter();
 
         while let Some(ctx) = unsafe { glyph_buffer.next_unchecked::<GlyphCtx>() } {
             for i in 0..ctx.count {
@@ -1651,11 +1705,11 @@ where
     }
 
     fn upload_uniforms(&mut self) {
-        for (type_id, (size, buffer)) in &self.uniform_bytes {
-            let bindings = self.context.custom_bindings.get_mut(type_id).unwrap();
+        for (shader_key, (size, buffer)) in &self.context.storage.uniform_bytes {
+            let bindings = self.context.custom_bindings.get_mut(shader_key).unwrap();
             for (i, bytes) in buffer.chunks(*size).enumerate() {
                 if i >= bindings.len() {
-                    let layout = &self.context.custom_layouts[type_id];
+                    let layout = &self.context.custom_layouts[shader_key];
                     let buffer = self.context.device.create_buffer(&wgpu::BufferDescriptor {
                         label: None,
                         size: *size as _,
@@ -1693,17 +1747,17 @@ where
             vp_matrix: current.vp_matrix,
             used: false,
             global_bind_index: current.global_bind_index + 1,
-            opaque_call_range: self.opaque_calls.len()..self.opaque_calls.len(),
-            trans_call_range: self.trans_calls.len()..self.trans_calls.len(),
+            opaque_call_range: self.context.storage.opaque_calls.len()..self.context.storage.opaque_calls.len(),
+            trans_call_range: self.context.storage.trans_calls.len()..self.context.storage.trans_calls.len(),
         };
         let mut current = std::mem::replace(&mut self.camera_pass, new_pass);
 
         self.update_globals(&current);
 
-        current.opaque_call_range = current.opaque_call_range.start..(self.opaque_calls.len());
-        current.trans_call_range = current.trans_call_range.start..(self.trans_calls.len());
+        current.opaque_call_range = current.opaque_call_range.start..(self.context.storage.opaque_calls.len());
+        current.trans_call_range = current.trans_call_range.start..(self.context.storage.trans_calls.len());
 
-        self.camera_passes.push(current);
+        self.context.storage.camera_passes.push(current);
     }
 
     fn update_globals(&mut self, camera_pass: &CameraPass) {
@@ -1793,6 +1847,22 @@ where
         self.set_view(Mat4::identity().0);
     }
 
+    // TODO: This is a travesty.
+    pub fn project_point(&self, point: [f32; 3]) -> [f32; 3] {
+        let mut projected = self.camera_pass.vp_matrix * Vec3::from(point).extend(1.);
+        projected /= projected.0[3];
+        let mut projected = (projected.retract() + vec3(1., 1., 0.)) * 0.5;
+        projected.0[1] = 1. - projected.0[1];
+
+        let canvas_properties = self.context.canvas_config.canvas_properties(
+            [self.context.surface_config.width, self.context.surface_config.height],
+            self.context.scale_factor,
+        );
+
+        let canvas_size = Vec2::from(canvas_properties.logical_canvas_size).extend(1.);
+        (projected * canvas_size).0
+    }
+
     pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
         if self.camera_pass.used {
             self.end_camera_pass(Some(canvas_config.clone())); // TODO: hmmm...
@@ -1823,10 +1893,10 @@ where
 
     pub fn ortho_2d(&mut self) {
         let canvas_properties = self.camera_pass.canvas_config.canvas_properties(
-            dbg!([
+            [
                 self.context.surface_config.width,
                 self.context.surface_config.height,
-            ]),
+            ],
             self.context.scale_factor,
         );
 
@@ -1931,14 +2001,14 @@ where
                 tint,
                 emission: color::TRANS,
             };
-            let start_index = self.push_constants.len();
+            let start_index = self.context.storage.push_constants.len();
             let base_push_bytes = push_constant_bytes(&base_push);
-            self.push_constants.extend_from_slice(base_push_bytes);
+            self.context.storage.push_constants.extend_from_slice(base_push_bytes);
             let push_bytes = push_constant_bytes(&push);
-            self.push_constants.extend_from_slice(push_bytes);
-            let end_index = self.push_constants.len();
+            self.context.storage.push_constants.extend_from_slice(push_bytes);
+            let end_index = self.context.storage.push_constants.len();
 
-            self.trans_calls[draw_call_index].push_range = start_index..end_index;
+            self.context.storage.trans_calls[draw_call_index].push_range = start_index..end_index;
         }
     }
 
@@ -1969,15 +2039,15 @@ where
         let count = glyphs.len() as u16;
 
         let shader_index = self.context.shader_mapping[&BuiltinShader::YFlip.into()];
-        let shader_entry = &self.context.pipelines[shader_index as usize];
+        let shader_entry = &self.context.pipelines[shader_index as usize].1;
         let mesh_index = self
             .context
             .mesh_atlas
             .fetch_submesh(&(BuiltinMesh::Sprite.into(), MeshVariant::Raw), None)
             .unwrap();
 
-        let draw_call_index = self.trans_calls.len();
-        self.glyph_buffer.push::<GlyphCtx>(GlyphCtx {
+        let draw_call_index = self.context.storage.trans_calls.len();
+        self.context.storage.glyph_buffer.push::<GlyphCtx>(GlyphCtx {
             draw_call_index,
             count,
             tint,
@@ -1989,10 +2059,10 @@ where
             0
         };
         for glyph in glyphs {
-            self.glyph_buffer.push(glyph);
+            self.context.storage.glyph_buffer.push(glyph);
 
             // Placeholder draw call
-            self.trans_calls.push(DrawCall {
+            self.context.storage.trans_calls.push(DrawCall {
                 phase: shader_entry.conf.phase,
                 depth,
                 shader_index,
@@ -2046,15 +2116,15 @@ where
         }
 
         let shader_index = self.context.shader_mapping[&BuiltinShader::YFlip.into()];
-        let shader_entry = &self.context.pipelines[shader_index as usize];
+        let shader_entry = &self.context.pipelines[shader_index as usize].1;
         let mesh_index = self
             .context
             .mesh_atlas
             .fetch_submesh(&(BuiltinMesh::Sprite.into(), MeshVariant::Raw), None)
             .unwrap();
 
-        let draw_call_index = self.trans_calls.len();
-        self.glyph_buffer.push(GlyphCtx {
+        let draw_call_index = self.context.storage.trans_calls.len();
+        self.context.storage.glyph_buffer.push(GlyphCtx {
             draw_call_index,
             count: to_render.len() as u16,
             tint,
@@ -2068,10 +2138,10 @@ where
         };
 
         for glyph in to_render {
-            self.glyph_buffer.push(glyph);
+            self.context.storage.glyph_buffer.push(glyph);
 
             // Placeholder draw call
-            self.trans_calls.push(DrawCall {
+            self.context.storage.trans_calls.push(DrawCall {
                 phase: shader_entry.conf.phase,
                 depth,
                 shader_index,
@@ -2103,7 +2173,7 @@ where
         transparent_depth: Option<Depth>,
     ) {
         let shader_index = self.context.shader_mapping[&shader];
-        let shader_entry = &self.context.pipelines[shader_index as usize];
+        let shader_entry = &self.context.pipelines[shader_index as usize].1;
         let phase = shader_entry.conf.phase;
 
         assert_eq!(
@@ -2131,11 +2201,11 @@ where
         let model_matrix = base_push.transform;
         base_push.transform = (self.camera_pass.vp_matrix * Mat4::from(base_push.transform)).0;
 
-        let start_index = self.push_constants.len();
+        let start_index = self.context.storage.push_constants.len();
 
         if shader_entry.conf.push_flags.contains(PushFlags::TRANSFORM) {
             let push_bytes = push_constant_bytes(&base_push.transform);
-            self.push_constants.extend_from_slice(push_bytes);
+            self.context.storage.push_constants.extend_from_slice(push_bytes);
         }
         if shader_entry
             .conf
@@ -2143,40 +2213,40 @@ where
             .contains(PushFlags::MODEL_MATRIX)
         {
             let push_bytes = push_constant_bytes(&model_matrix);
-            self.push_constants.extend_from_slice(push_bytes);
+            self.context.storage.push_constants.extend_from_slice(push_bytes);
         }
         if shader_entry.conf.push_flags.contains(PushFlags::ATLAS_UV) {
             let push_bytes = push_constant_bytes(&base_push.uv_offset_scale);
-            self.push_constants.extend_from_slice(push_bytes);
+            self.context.storage.push_constants.extend_from_slice(push_bytes);
         }
 
         let push_bytes = push_constant_bytes(&push);
-        self.push_constants.extend_from_slice(push_bytes);
+        self.context.storage.push_constants.extend_from_slice(push_bytes);
 
-        let end_index = self.push_constants.len();
+        let end_index = self.context.storage.push_constants.len();
 
         let uniforms_index = (uniform_size > 0).then(|| {
             let ptr = uniforms as *const _ as *const u8;
-            if let Some(index) = self.uniform_indices.get(&ptr) {
+            if let Some(index) = self.context.storage.uniform_indices.get(&ptr) {
                 *index
             } else {
                 let bytes = unsafe { std::slice::from_raw_parts(ptr, uniform_size) };
                 let buffer = self
-                    .uniform_bytes
-                    .entry(TypeId::of::<U>())
+                    .context.storage.uniform_bytes
+                    .entry(shader.clone())
                     .or_insert((uniform_size, vec![]));
                 let buffer = &mut buffer.1;
                 let index = (buffer.len() / uniform_size) as u8;
                 buffer.extend_from_slice(bytes);
 
-                self.uniform_indices.insert(ptr, index);
+                self.context.storage.uniform_indices.insert(ptr, index);
 
                 index
             }
         });
 
         if let Some(depth) = transparent_depth {
-            self.trans_calls.push(DrawCall {
+            self.context.storage.trans_calls.push(DrawCall {
                 phase,
                 depth,
                 shader_index,
@@ -2186,7 +2256,7 @@ where
                 push_range: start_index..end_index,
             });
         } else {
-            self.opaque_calls.push(DrawCall {
+            self.context.storage.opaque_calls.push(DrawCall {
                 phase,
                 depth: 0 * D,
                 shader_index,
@@ -2432,5 +2502,6 @@ where
 {
     fn drop(&mut self) {
         self.render();
+        self.context.storage.clear();
     }
 }

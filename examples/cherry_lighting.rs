@@ -227,18 +227,18 @@ mod internal {
         let (window, event_loop) =
             jamjar::windowing::window_and_event_loop("cherry_lighting", resolution.0).unwrap();
 
-        #[cfg(target_arch = "wasm32")]
-        {
-            use winit::platform::web::WindowExtWebSys;
-            web_sys::window()
-                .and_then(|win| win.document())
-                .and_then(|doc| doc.body())
-                .and_then(|body| {
-                    body.append_child(&web_sys::Element::from(window.canvas()))
-                        .ok()
-                })
-                .expect("failed to add canvas to document body");
-        }
+        // #[cfg(target_arch = "wasm32")]
+        // {
+        //     use winit::platform::web::WindowExtWebSys;
+        //     web_sys::window()
+        //         .and_then(|win| win.document())
+        //         .and_then(|doc| doc.body())
+        //         .and_then(|body| {
+        //             body.append_child(&web_sys::Element::from(window.canvas().unwrap()))
+        //                 .ok()
+        //         })
+        //         .expect("failed to add canvas to document body");
+        // }
 
         let canvas_config = jamjar::draw::CanvasConfig::set_scaled(resolution.as_f32().0);
         let mut context = jamjar::draw::cherry::DrawContext::<Image, Mesh, Shader>::new(
@@ -316,196 +316,206 @@ mod internal {
         let mut clock = jamjar::timing::RealClock::new_now();
         let start = clock.now();
 
+        let mut frame_pacer = jamjar::timing::FramePacer::new();
+
         let mut mouse = WinitMouse::new();
 
-        event_loop.run(move |event, _, control_flow| {
+        let run_result = event_loop.run(move |event, window_target| {
             use jamjar::windowing::event::{Event, WindowEvent};
 
             context.handle_winit_event(&event);
-            mouse.handle_event(&event);
+            // mouse.handle_event(&event);
 
             match event {
+                Event::NewEvents(jamjar::windowing::event::StartCause::ResumeTimeReached {
+                    ..
+                }) => {
+                    window.request_redraw();
+                },
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => {
-                        *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit
+                        window_target.exit()
                     }
-                    _ => (),
-                },
-                Event::MainEventsCleared => {
-                    clock.update();
-                    window.request_redraw();
-                }
-                Event::RedrawRequested(_) => {
-                    dbg!(context.frame_stats());
+                    WindowEvent::RedrawRequested => {
+                        dbg!(context.frame_stats());
 
-                    let mouse_pos = context
-                        .window_to_canvas_pos(mouse.position())
-                        .unwrap_or([0., 0.]);
+                        clock.update();
 
-                    let sf = context.scale_factor();
+                        let frame_deadline = frame_pacer.deadline_for_fps(60.);
+                        window_target.set_control_flow(jamjar::windowing::event_loop::ControlFlow::WaitUntil(frame_deadline));
 
-                    let t0 = clock.since(start) as f32;
-                    let t1 = (t0 * 1.43243) + std::f32::consts::TAU / 2.;
+                        let mouse_pos = context
+                            .window_to_canvas_pos(mouse.position())
+                            .unwrap_or([0., 0.]);
 
-                    let lights = &[
-                        ([t0.cos(), 0., t0.sin() + 2., 1.], [1., 0., 0., 0.]),
-                        ([t1.cos(), 0., t1.sin() + 2., 1.], [0., 1., 0., 0.]),
-                    ];
+                        let sf = context.scale_factor();
 
-                    let key_light_dir = Vec4::new([0.2, 1., -0.35, 0.]).norm();
-                    let key_shadow_dir = (-key_light_dir).0;
+                        let t0 = clock.since(start) as f32;
+                        let t1 = (t0 * 1.43243) + std::f32::consts::TAU / 2.;
 
-                    let light_dirs = [
-                        [-1., 0., 0., 0.],
-                        key_light_dir.0,
-                        [0., 0., -1., 0.],
-                        [0., 0., 0., 0.],
-                    ];
-                    let light_cols_t = Mat4::new([
-                        [0.3, 0.3, 0.0, 0.],
-                        [0.3, 0.0, 0.3, 0.],
-                        [0.0, 0.3, 0.3, 0.],
-                        [0.0, 0.0, 0.0, 0.],
-                    ])
-                    .transpose()
-                    .0;
+                        let lights = &[
+                            ([t0.cos(), 0., t0.sin() + 2., 1.], [1., 0., 0., 0.]),
+                            ([t1.cos(), 0., t1.sin() + 2., 1.], [0., 1., 0., 0.]),
+                        ];
 
-                    let dir_light_uniforms = DirLightUniforms {
-                        light_dirs,
-                        light_cols_t,
-                    };
+                        let key_light_dir = Vec4::new([0.2, 1., -0.35, 0.]).norm();
+                        let key_shadow_dir = (-key_light_dir).0;
 
-                    let mut ren = context.start_rendering([0.2, 0.6, 1., 1.], mouse_pos, [0.; 4]);
+                        let light_dirs = [
+                            [-1., 0., 0., 0.],
+                            key_light_dir.0,
+                            [0., 0., -1., 0.],
+                            [0., 0., 0., 0.],
+                        ];
+                        let light_cols_t = Mat4::new([
+                            [0.3, 0.3, 0.0, 0.],
+                            [0.3, 0.0, 0.3, 0.],
+                            [0.0, 0.3, 0.3, 0.],
+                            [0.0, 0.0, 0.0, 0.],
+                        ])
+                        .transpose()
+                        .0;
 
-                    ren.perspective_3d(1.0);
-                    ren.set_view(
-                        (Mat4::translation([0., -0.5, 0.])
-                            * matrix::axis_rotation([1., 0., 0.], -0.5))
-                        .0,
-                    );
+                        let dir_light_uniforms = DirLightUniforms {
+                            light_dirs,
+                            light_cols_t,
+                        };
 
-                    for &(pos, color) in lights {
-                        ren.draw(
-                            BuiltinShader::Basic,
-                            BuiltinImage::White,
-                            &Mesh::Sphere,
-                            (Mat4::translation([pos[0], pos[1], pos[2]])
-                                * Mat4::scale([0.1, 0.1, 0.1, 1.]))
+                        let mut ren = context.start_rendering([0.2, 0.6, 1., 1.], mouse_pos, [0.; 4]);
+
+                        ren.perspective_3d(1.0);
+                        ren.set_view(
+                            (Mat4::translation([0., -0.5, 0.])
+                                * matrix::axis_rotation([1., 0., 0.], -0.5))
                             .0,
-                            BasicPush {
-                                tint: [color[0], color[1], color[2], 1.0],
-                                emission: [0.; 4],
-                            },
-                            &(),
-                            false,
-                            None,
-                        );
-                    }
-
-                    let sphere_trans = (Mat4::translation([0., -0.2, 2.])
-                        * matrix::axis_rotation(
-                            [0., 1., 0.],
-                            (clock.since(start) % std::f64::consts::TAU) as f32,
-                        ))
-                    .0;
-                    let sphere_2_trans = (Mat4::translation([t0.cos() * 2.0, 0.4, 1.4])).0;
-                    let cube_trans =
-                        (Mat4::translation([0., -2., 2.]) * Mat4::scale([9.0, 1.0, 9.0, 1.0])).0;
-
-                    let lit_objects = [
-                        (Mesh::Sphere, sphere_trans),
-                        (Mesh::Sphere, sphere_2_trans),
-                        (Mesh::Cube, cube_trans),
-                    ];
-
-                    for (mesh, trans) in lit_objects {
-                        ren.draw(
-                            &Shader::Shadowed,
-                            BuiltinImage::White,
-                            &mesh,
-                            trans,
-                            ShadowedPush {
-                                tint: [1., 1., 1., 1.],
-                                emission: [0., 0., 0., 0.],
-                                ambient: [0.1, 0.1, 0.15, 1.],
-                            },
-                            &(),
-                            false,
-                            None,
-                        );
-
-                        ren.draw(
-                            &Shader::ShadowFront,
-                            BuiltinImage::White,
-                            &mesh,
-                            trans,
-                            ShadowPush {
-                                light_dir: key_shadow_dir,
-                            },
-                            &(),
-                            false,
-                            None,
-                        );
-                        ren.draw(
-                            &Shader::ShadowBack,
-                            BuiltinImage::White,
-                            &mesh,
-                            trans,
-                            ShadowPush {
-                                light_dir: key_shadow_dir,
-                            },
-                            &(),
-                            false,
-                            None,
-                        );
-
-                        ren.draw(
-                            &Shader::DirLight,
-                            BuiltinImage::White,
-                            &mesh,
-                            trans,
-                            DirLightPush {
-                                tint: [1., 1., 1., 1.],
-                            },
-                            &dir_light_uniforms,
-                            false,
-                            None,
                         );
 
                         for &(pos, color) in lights {
                             ren.draw(
-                                &Shader::PointLight,
+                                BuiltinShader::Basic,
                                 BuiltinImage::White,
-                                &mesh,
-                                trans,
-                                PointLightPush {
-                                    tint: [1., 1., 1., 1.],
-                                    pos: pos,
-                                    light: color,
+                                &Mesh::Sphere,
+                                (Mat4::translation([pos[0], pos[1], pos[2]])
+                                    * Mat4::scale([0.1, 0.1, 0.1, 1.]))
+                                .0,
+                                BasicPush {
+                                    tint: [color[0], color[1], color[2], 1.0],
+                                    emission: [0.; 4],
                                 },
                                 &(),
                                 false,
                                 None,
                             );
                         }
+
+                        let sphere_trans = (Mat4::translation([0., -0.2, 2.])
+                            * matrix::axis_rotation(
+                                [0., 1., 0.],
+                                (clock.since(start) % std::f64::consts::TAU) as f32,
+                            ))
+                        .0;
+                        let sphere_2_trans = (Mat4::translation([t0.cos() * 2.0, 0.4, 1.4])).0;
+                        let cube_trans =
+                            (Mat4::translation([0., -2., 2.]) * Mat4::scale([9.0, 1.0, 9.0, 1.0])).0;
+
+                        let lit_objects = [
+                            (Mesh::Sphere, sphere_trans),
+                            (Mesh::Sphere, sphere_2_trans),
+                            (Mesh::Cube, cube_trans),
+                        ];
+
+                        for (mesh, trans) in lit_objects {
+                            ren.draw(
+                                &Shader::Shadowed,
+                                BuiltinImage::White,
+                                &mesh,
+                                trans,
+                                ShadowedPush {
+                                    tint: [1., 1., 1., 1.],
+                                    emission: [0., 0., 0., 0.],
+                                    ambient: [0.1, 0.1, 0.15, 1.],
+                                },
+                                &(),
+                                false,
+                                None,
+                            );
+
+                            ren.draw(
+                                &Shader::ShadowFront,
+                                BuiltinImage::White,
+                                &mesh,
+                                trans,
+                                ShadowPush {
+                                    light_dir: key_shadow_dir,
+                                },
+                                &(),
+                                false,
+                                None,
+                            );
+                            ren.draw(
+                                &Shader::ShadowBack,
+                                BuiltinImage::White,
+                                &mesh,
+                                trans,
+                                ShadowPush {
+                                    light_dir: key_shadow_dir,
+                                },
+                                &(),
+                                false,
+                                None,
+                            );
+
+                            ren.draw(
+                                &Shader::DirLight,
+                                BuiltinImage::White,
+                                &mesh,
+                                trans,
+                                DirLightPush {
+                                    tint: [1., 1., 1., 1.],
+                                },
+                                &dir_light_uniforms,
+                                false,
+                                None,
+                            );
+
+                            for &(pos, color) in lights {
+                                ren.draw(
+                                    &Shader::PointLight,
+                                    BuiltinImage::White,
+                                    &mesh,
+                                    trans,
+                                    PointLightPush {
+                                        tint: [1., 1., 1., 1.],
+                                        pos: pos,
+                                        light: color,
+                                    },
+                                    &(),
+                                    false,
+                                    None,
+                                );
+                            }
+                        }
+
+                        ren.ortho_2d();
+
+                        let text = font.layout_wrapped(
+                            "cherry_lighting",
+                            [32., 620.],
+                            sf,
+                            Some(44.),
+                            1200.,
+                            1.,
+                            None,
+                        );
+                        ren.glyphs(&text, [0., 0.], [0.9, 1., 1., 1.], 2 * D, false);
                     }
-
-                    ren.ortho_2d();
-
-                    let text = font.layout_wrapped(
-                        "cherry_lighting",
-                        [32., 620.],
-                        sf,
-                        Some(44.),
-                        1200.,
-                        1.,
-                        None,
-                    );
-                    ren.glyphs(&text, [0., 0.], [0.9, 1., 1., 1.], 2 * D, false);
-                }
+                    _ => (),
+                },
 
                 _ => (),
             }
         });
+
+        run_result.unwrap();
     }
 }

@@ -2,9 +2,9 @@
 use wasm_bindgen::prelude::*;
 
 use std::marker::PhantomData;
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use web_time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(inline_js = r#"
@@ -12,11 +12,11 @@ export function _system_secs_f64() {
   return performance.now() / 1000.0;
 }"#)]
 extern "C" {
-    fn _system_secs_f64() -> f64;
+    pub(crate) fn _system_secs_f64() -> f64;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn _system_secs_f64() -> f64 {
+pub(crate) fn _system_secs_f64() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()

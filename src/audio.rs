@@ -6,13 +6,13 @@ use std::{
     io::Cursor,
     sync::{Arc, Mutex},
     thread::JoinHandle,
-    time::Duration,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use web_time::Duration;
 
 pub const MAX_TRACKS: usize = 16;
 

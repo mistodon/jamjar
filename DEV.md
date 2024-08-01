@@ -1,6 +1,22 @@
-# Popup:
+# Jamjar
+
+## Refresh - I forgot what I was doing
+
+- [x] cherry_lighting runs on Metal just fine
+- [x] can we get cherry_lighting working on web?
+- [ ] can we get cherry_lighting working on Android?
+
+
 
 Must:
+
+For update -> web -> android:
+- [x] Validate a set of examples that work
+- [x] And work on web
+- [x] Then update wgpu and winit and make sure they still work
+- [ ] Look into web-time and fix up all the timing stuff
+- [ ] And still work on web
+- [ ] Then look into Android examples
 
 For cherry:
 - [ ] Example of different scaling modes
