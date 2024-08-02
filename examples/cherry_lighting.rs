@@ -109,7 +109,6 @@ mod internal {
 
     const POINTLIGHT_SHADER: &str = "
     struct Push {
-        transform: mat4x4<f32>,
         model_matrix: mat4x4<f32>,
         uv_offset_scale: vec4<f32>,
         tint: vec4<f32>,
@@ -127,7 +126,9 @@ mod internal {
         var to_light_n = vec4(normalize(to_light.xyz), 0.0);
 
         var output: VertexOutput;
-        output.position = push.transform * vertex.position;
+
+        var transform: mat4x4<f32> = globals.vp_mat * push.model_matrix;
+        output.position = transform * vertex.position;
         output.normal = normalize(push.model_matrix * vertex.normal).xyz;
         output.uv = vertex.uv.xy * (push.uv_offset_scale.zw) + push.uv_offset_scale.xy;
         output.color = vertex.color;
@@ -154,7 +155,6 @@ mod internal {
 
     const DIRLIGHT_SHADER: &str = "
     struct Push {
-        transform: mat4x4<f32>,
         model_matrix: mat4x4<f32>,
         uv_offset_scale: vec4<f32>,
         tint: vec4<f32>,
@@ -174,7 +174,8 @@ mod internal {
     @vertex
     fn vertex_main(vertex: VertexInput) -> VertexOutput {
         var output: VertexOutput;
-        output.position = push.transform * vertex.position;
+        var transform = globals.vp_mat * push.model_matrix;
+        output.position = transform * vertex.position;
         output.normal = normalize(push.model_matrix * vertex.normal).xyz;
         output.uv = vertex.uv.xy * (push.uv_offset_scale.zw) + push.uv_offset_scale.xy;
         output.color = vertex.color;
@@ -198,7 +199,6 @@ mod internal {
 
     const SHADOWVOL_SHADER: &str = "
     struct Push {
-        transform: mat4x4<f32>,
         model_matrix: mat4x4<f32>,
         light_dir: vec4<f32>,
     };
@@ -264,18 +264,9 @@ mod internal {
                 shader_flags: ShaderFlags::NO_COLOR_WRITE
                     | ShaderFlags::NO_DEPTH_WRITE
                     | ShaderFlags::STENCIL_ADD,
-                push_flags: PushFlags::TRANSFORM | PushFlags::MODEL_MATRIX,
+                push_flags: PushFlags::MODEL_MATRIX,
             },
         );
-        // context.load_shader::<ShadowPush>(
-        //     Shader::ShadowFront,
-        //     SHADOWVOL_SHADER,
-        //     ShaderConf {
-        //         phase: 0,
-        //         shader_flags: ShaderFlags::default(),
-        //         push_flags: PushFlags::TRANSFORM | PushFlags::MODEL_MATRIX,
-        //     },
-        // );
 
         context.load_shader::<ShadowPush>(
             Shader::ShadowBack,
@@ -286,7 +277,7 @@ mod internal {
                     | ShaderFlags::NO_DEPTH_WRITE
                     | ShaderFlags::STENCIL_SUB
                     | ShaderFlags::BACK_FACE_ONLY,
-                push_flags: PushFlags::TRANSFORM | PushFlags::MODEL_MATRIX,
+                push_flags: PushFlags::MODEL_MATRIX,
             },
         );
         context.load_shader::<PointLightPush>(
@@ -295,7 +286,7 @@ mod internal {
             ShaderConf {
                 phase: 3,
                 shader_flags: ShaderFlags::NO_DEPTH_WRITE | ShaderFlags::BLEND_ADD,
-                push_flags: PushFlags::default() | PushFlags::MODEL_MATRIX,
+                push_flags: PushFlags::MODEL_MATRIX | PushFlags::ATLAS_UV,
             },
         );
         context.load_shader_with_uniforms::<DirLightPush, DirLightUniforms>(
@@ -306,7 +297,7 @@ mod internal {
                 shader_flags: ShaderFlags::NO_DEPTH_WRITE
                     | ShaderFlags::BLEND_ADD
                     | ShaderFlags::STENCIL_HIDES,
-                push_flags: PushFlags::default() | PushFlags::MODEL_MATRIX,
+                push_flags: PushFlags::MODEL_MATRIX | PushFlags::ATLAS_UV,
             },
         );
 

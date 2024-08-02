@@ -261,8 +261,6 @@ impl Default for SpriteParams {
 #[repr(C)]
 pub struct LitPush {
     pub tint: [f32; 4],
-    pub emission: [f32; 4],
-    pub ambient: [f32; 4],
     pub light_dir: [f32; 4],
     pub light_col: [f32; 4],
 }
@@ -271,8 +269,6 @@ impl Default for LitPush {
     fn default() -> Self {
         LitPush {
             tint: color::WHITE,
-            emission: color::TRANS,
-            ambient: color::BLACK,
             light_dir: [0., -1., 0., 0.],
             light_col: color::WHITE,
         }
@@ -484,7 +480,7 @@ where
                     label: None,
                     required_features: wgpu::Features::PUSH_CONSTANTS,
                     required_limits: wgpu::Limits {
-                        max_push_constant_size: 256,
+                        max_push_constant_size: 128,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     }
                     .using_resolution(adapter.limits()),
@@ -679,14 +675,14 @@ where
             }
         }
 
-        let vertex_bytes = [0; MAX_VERTICES * std::mem::size_of::<Vertex>()];
+        let vertex_bytes = vec![0; MAX_VERTICES * std::mem::size_of::<Vertex>()];
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: &vertex_bytes,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
 
-        let index_bytes = [0; MAX_VERTICES * std::mem::size_of::<u16>()];
+        let index_bytes = vec![0; MAX_VERTICES * std::mem::size_of::<u16>()];
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: &index_bytes,
@@ -2199,7 +2195,7 @@ where
             .unwrap();
 
         let model_matrix = base_push.transform;
-        base_push.transform = (self.camera_pass.vp_matrix * Mat4::from(base_push.transform)).0;
+        base_push.transform = (self.camera_pass.vp_matrix * Mat4::from(model_matrix)).0;
 
         let start_index = self.context.storage.push_constants.len();
 
