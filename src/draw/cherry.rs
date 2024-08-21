@@ -428,6 +428,7 @@ where
     mesh_atlas: SubmeshAtlas<MeshAssetKey<MeshKey>, (MeshAssetKey<MeshKey>, MeshVariant), Vertex>,
     image_atlas: ImageArrayAtlas<'static, ImageAssetKey<ImageKey>>,
     image_atlas_images: Vec<RgbaImage>,
+    built_in_font: crate::font::Font,
     font_atlas: FontAtlas,
     font_atlas_image: RgbaImage,
     shader_mapping: HashMap<ShaderAssetKey<ShaderKey>, u8>,
@@ -724,6 +725,7 @@ where
                 RgbaImage::new(texture_size, texture_size);
                 (texture_pages - 1) as usize
             ],
+            built_in_font: crate::font::Font::load_default(),
             font_atlas: FontAtlas::with_size([texture_size; 2]),
             font_atlas_image: RgbaImage::new(texture_size, texture_size),
             shader_mapping: Default::default(),
@@ -2005,6 +2007,34 @@ where
             let end_index = self.context.storage.push_constants.len();
 
             self.context.storage.trans_calls[draw_call_index].push_range = start_index..end_index;
+        }
+    }
+
+    fn draw_tinted_overlay(&mut self) {
+        self.stored_sprite(BuiltinImage::White, SpriteParams {
+            pos: [-40., -40.],
+            pixelly: false,
+            tint: [0.125, 0., 0.5, 0.75],
+            size: Size::Set([4000., 4000.]),
+            pivot: Pivot::TL,
+            .. Default::default()
+        });
+    }
+
+    pub fn draw_console(&mut self, console: &dbgcmd::Console) {
+        if console.shown() {
+            self.ortho_2d();
+            self.draw_tinted_overlay();
+
+            let (cur, glyphs) = self.context.built_in_font.layout_line_cur(console.entry(), [4., 4.], self.context.scale_factor, None);
+            let glyphs_2 = self.context.built_in_font.layout_line("|", cur.into(), self.context.scale_factor, None);
+            self.glyphs(&glyphs, [0., 0.], [0., 1., 0., 1.], D, false);
+            self.glyphs(&glyphs_2, [0., 0.], [0., 0.5, 0., 1.], D, false);
+
+            for (i, line) in console.history().take(32).enumerate() {
+                let glyphs = self.context.built_in_font.layout_line(line, [8., 4. + (i as f32 + 1.) * 16.], self.context.scale_factor, None);
+                self.glyphs(&glyphs, [0., 0.], [0., 0.5, 0., 1.], D, false);
+            }
         }
     }
 

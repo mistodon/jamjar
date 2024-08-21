@@ -23,7 +23,7 @@ mod internal {
             cherry::{BasicPush, BuiltinImage, BuiltinShader, PushFlags, ShaderConf, ShaderFlags},
             D,
         },
-        input::WinitMouse,
+        input::*,
         math::*,
     };
 
@@ -310,12 +310,17 @@ mod internal {
         let mut frame_pacer = jamjar::timing::FramePacer::new();
 
         let mut mouse = WinitMouse::new();
+        let mut keyboard = WinitKeyboard::new();
+
+        let mut console = dbgcmd::Console::new();
 
         let run_result = event_loop.run(move |event, window_target| {
             use jamjar::windowing::event::{Event, WindowEvent};
 
             context.handle_winit_event(&event);
-            // mouse.handle_event(&event);
+            console.handle_winit_event(&event);
+            mouse.handle_event(&event);
+            keyboard.handle_event(&event);
 
             match event {
                 Event::NewEvents(jamjar::windowing::event::StartCause::ResumeTimeReached {
@@ -334,6 +339,13 @@ mod internal {
 
                         let frame_deadline = frame_pacer.deadline_for_fps(60.);
                         window_target.set_control_flow(jamjar::windowing::event_loop::ControlFlow::WaitUntil(frame_deadline));
+
+                        if keyboard.pressed(&Key::Character("`".into())) {
+                            console.toggle_shown();
+                        }
+                        if keyboard.pressed(&Key::Named(jamjar::windowing::keyboard::NamedKey::Enter)) && console.shown() {
+                            let _cmd = console.confirm::<String>().unwrap();
+                        }
 
                         let mouse_pos = context
                             .window_to_canvas_pos(mouse.position())
@@ -499,6 +511,11 @@ mod internal {
                             None,
                         );
                         ren.glyphs(&text, [0., 0.], [0.9, 1., 1., 1.], 2 * D, false);
+
+                        ren.draw_console(&console);
+
+                        mouse.clear_presses();
+                        keyboard.clear_presses();
                     }
                     _ => (),
                 },

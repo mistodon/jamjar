@@ -29,7 +29,7 @@ draw_sloth = ["gfx", "windowing"]
 draw_groove = ["gfx", "math", "windowing"]
 draw_forever = ["gfx", "math", "windowing"]
 draw_popup = ["dep:hvec", "font", "gltf", "wgpu", "math", "windowing"]
-draw_cherry = ["bitflags", "dep:hvec", "font", "gltf", "wgpu", "math", "timing", "windowing"]
+draw_cherry = ["bitflags", "dep:dbgcmd", "dep:hvec", "font", "gltf", "wgpu", "math", "timing", "windowing"]
 dymod = ["dep:dymod"]
 font = ["dep:rusttype"]
 gfx = ["dep:gfx-hal", "dep:gfx-auxil", "dep:image"]
@@ -87,6 +87,12 @@ fern = "0.6.2"
 version = "0.6"
 git = "https://github.com/mistodon/buttons"
 rev = "381430e"
+optional = true
+
+[dependencies.dbgcmd]
+version = "0.3"
+git = "https://github.com/mistodon/dbgcmd"
+rev = "288d0e0"
 optional = true
 
 [dependencies.glace]
