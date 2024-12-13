@@ -4,7 +4,9 @@ use std::{
     collections::HashMap,
     hash::Hash,
     ops::Range,
+    path::PathBuf,
     sync::Arc,
+    time::SystemTime,
 };
 
 use hvec::HVec;
@@ -438,6 +440,7 @@ where
     frame_stats: RenderStats,
 
     storage: FrameStorage<ShaderKey>,
+    editor_context: EditorContext,
 }
 
 impl<ImageKey, MeshKey, ShaderKey> DrawContext<ImageKey, MeshKey, ShaderKey>
@@ -735,6 +738,11 @@ where
             frame_stats: RenderStats::default(),
 
             storage: FrameStorage::new(),
+            editor_context: EditorContext {
+                shown: false,
+                file: None,
+                mode: EditMode::Default,
+            },
         };
 
         let quad_mesh = Mesh {
@@ -2038,6 +2046,39 @@ where
         }
     }
 
+    pub fn draw_editor<P: AsRef<std::path::Path>>(&mut self, path: P) {
+        use serde_yaml::Value;
+
+        self.ortho_2d();
+        self.draw_tinted_overlay();
+
+        let source = std::fs::read_to_string(path.as_ref()).unwrap();
+        let object: Value = serde_yaml::from_str(&source).unwrap();
+
+        if let Value::Mapping(mapping) = object {
+            let dx = 0.;
+            let mut dy = 0.;
+            self.draw_editor_mapping(dx, &mut dy, &mapping);
+        } else {
+            eprintln!("Cannot render non-map YAML file.");
+        }
+    }
+
+    fn draw_editor_mapping(&mut self, dx: f32, dy: &mut f32, mapping: &serde_yaml::Mapping) {
+        use serde_yaml::Value;
+
+        for (key, value) in mapping.iter() {
+            if let Value::String(s) = key {
+                let glyphs = self.context.built_in_font.layout_line(s, [4. + dx, 4. + *dy], self.context.scale_factor, None);
+                self.glyphs(&glyphs, [0., 0.], [0., 1., 0., 1.], D, false);
+                *dy += 16.;
+            }
+            if let Value::Mapping(m) = value {
+                self.draw_editor_mapping(dx + 16., dy, m);
+            }
+        }
+    }
+
     pub fn glyphs<'g, I>(
         &mut self,
         glyphs: I,
@@ -2530,4 +2571,22 @@ where
         self.render();
         self.context.storage.clear();
     }
+}
+
+struct EditorContext {
+    shown: bool,
+    file: Option<EditingFile>,
+    mode: EditMode,
+}
+
+struct EditingFile {
+    path: PathBuf,
+    modified: SystemTime,
+    value: serde_yaml::Mapping,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditMode {
+    Default,
+    HSV,
 }

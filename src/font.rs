@@ -4,7 +4,7 @@ use rusttype::{Font as RTFont, GlyphId, Point, PositionedGlyph, Scale, ScaledGly
 
 use crate::layout::Frame;
 
-const BUILT_IN_FONT: &[u8] = include_bytes!("../assets/fonts/monospace_typewriter.ttf");
+const BUILT_IN_FONT: &[u8] = include_bytes!("../assets/fonts/monofonto.otf");
 
 static mut FONT_COUNT: AtomicU16 = AtomicU16::new(0);
 
