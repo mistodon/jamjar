@@ -15,7 +15,7 @@ incremental = true
 lto = "thin"
 
 [[bin]]
-name = "jamjar"
+name = "jamjar_legacy"
 path = "src/main.rs"
 required-features = ["cli"]
 
