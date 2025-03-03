@@ -24,7 +24,7 @@ mod internal {
             cherry::{BasicPush, BuiltinImage, BuiltinShader, LitPush, ShaderConf, SpriteParams},
             D,
         },
-        input::WinitMouse,
+        input::{prelude::*, support::winit::WinitMouse},
         math::*,
     };
 

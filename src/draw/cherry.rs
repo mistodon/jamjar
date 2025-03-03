@@ -1438,7 +1438,6 @@ where
 
         // Passes
         for (i, camera_pass) in self.camera_passes.iter().enumerate() {
-
             let canvas_properties = camera_pass.canvas_config.canvas_properties(
                 [
                     self.context.surface_config.width,
