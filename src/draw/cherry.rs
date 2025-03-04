@@ -34,11 +34,11 @@ const LIT_SHADER: &'static str = include_str!("cherry_shaders/lit.wgsl");
 
 const SAMPLERS: u8 = 2;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(web_platform))]
 const MAX_VERTICES: usize = 65536;
 
 // For some reason, WebGL doesn't support more than 16279 here(???)
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 const MAX_VERTICES: usize = 10000;
 
 #[derive(Debug, Default, Clone)]
@@ -387,7 +387,7 @@ impl Ord for DrawCall {
 impl Eq for DrawCall {}
 
 #[allow(dead_code)]
-pub struct DrawContext<ImageKey = BuiltinOnly, MeshKey = BuiltinOnly, ShaderKey = BuiltinOnly>
+pub struct DrawContext<'window, ImageKey = BuiltinOnly, MeshKey = BuiltinOnly, ShaderKey = BuiltinOnly>
 where
     ImageKey: Clone + Eq + Hash,
     MeshKey: Clone + Eq + Hash,
@@ -398,7 +398,7 @@ where
     texture_pages: u8,
 
     instance: wgpu::Instance,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'window>,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -433,21 +433,36 @@ where
     frame_stats: RenderStats,
 }
 
-impl<ImageKey, MeshKey, ShaderKey> DrawContext<ImageKey, MeshKey, ShaderKey>
+impl<'window, ImageKey, MeshKey, ShaderKey> DrawContext<'window, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
     MeshKey: Clone + Eq + Hash,
     ShaderKey: Clone + Eq + Hash,
 {
     pub async fn new(
-        window: &Window,
+        window: &'window Window,
         canvas_config: CanvasConfig,
         texture_size: u32,
         texture_pages: u8,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let texture_pages = texture_pages + 1; // Font texture
-        let instance = wgpu::Instance::default();
-        let surface = unsafe { instance.create_surface(&window).unwrap() };
+
+        let backends = {
+            #[cfg(web_platform)]
+            {
+                wgpu::Backends::GL
+            }
+            #[cfg(not(web_platform))]
+            {
+                wgpu::Backends::default()
+            }
+        };
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
+        let surface = unsafe { instance.create_surface(window).unwrap() };
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -462,12 +477,13 @@ where
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::PUSH_CONSTANTS,
-                    limits: wgpu::Limits {
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    required_limits: wgpu::Limits {
                         max_push_constant_size: 256,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     }
                     .using_resolution(adapter.limits()),
+                    memory_hints: wgpu::MemoryHints::default(),
                 },
                 None,
             )
@@ -485,6 +501,7 @@ where
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![swapchain_format],
+            desired_maximum_frame_latency: 1,
         };
         let scale_factor = window.scale_factor();
 
@@ -827,10 +844,13 @@ where
                 event:
                     WindowEvent::ScaleFactorChanged {
                         scale_factor,
-                        new_inner_size,
+                        inner_size_writer,
                     },
                 ..
-            } => self.scale_factor_changed(*scale_factor, (**new_inner_size).into()),
+            } => {
+                // TODO: Handle correctly
+                //self.scale_factor_changed(*scale_factor, (**new_inner_size).into())
+            },
             _ => (),
         }
     }
@@ -1091,7 +1111,7 @@ where
 
         let opaque_fragment = wgpu::FragmentState {
             module: &shader,
-            entry_point: "fragment_main",
+            entry_point: Some("fragment_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: self.swapchain_format,
                 blend: match (write_color, should_add) {
@@ -1104,11 +1124,12 @@ where
                     wgpu::ColorWrites::empty()
                 },
             })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
         };
 
         let trans_fragment = wgpu::FragmentState {
             module: &shader,
-            entry_point: "fragment_main",
+            entry_point: Some("fragment_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: self.swapchain_format,
                 blend: match (write_color, should_add) {
@@ -1122,6 +1143,7 @@ where
                     wgpu::ColorWrites::empty()
                 },
             })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
         };
 
         let (stencil_shows, stencil_hides, stencil_add, stencil_sub) = (
@@ -1160,8 +1182,9 @@ where
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: "vertex_main",
+                    entry_point: Some("vertex_main"),
                     buffers: &[vertex_buffer_layout.clone()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(opaque_fragment),
                 primitive,
@@ -1174,6 +1197,7 @@ where
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
+                cache: None,
             });
 
         let trans_pipeline = self
@@ -1183,8 +1207,9 @@ where
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: "vertex_main",
+                    entry_point: Some("vertex_main"),
                     buffers: &[vertex_buffer_layout.clone()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(trans_fragment),
                 primitive,
@@ -1197,6 +1222,7 @@ where
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
+                cache: None,
             });
 
         let shader_index = self.pipelines.len() as u8;
@@ -1269,12 +1295,12 @@ where
         }
     }
 
-    pub fn start_rendering(
-        &mut self,
+    pub fn start_rendering<'context>(
+        &'context mut self,
         clear_color: [f32; 4],
         cursor_pos: [f32; 2],
         generic_params: [f32; 4],
-    ) -> Renderer<ImageKey, MeshKey, ShaderKey> {
+    ) -> Renderer<'window, 'context, ImageKey, MeshKey, ShaderKey> {
         self.prepare_for_frame();
 
         let canvas_config = self.canvas_config.clone();
@@ -1310,13 +1336,13 @@ where
     }
 }
 
-pub struct Renderer<'a, ImageKey, MeshKey, ShaderKey>
+pub struct Renderer<'window, 'context, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
     MeshKey: Clone + Eq + Hash,
     ShaderKey: Clone + Eq + Hash,
 {
-    context: &'a mut DrawContext<ImageKey, MeshKey, ShaderKey>,
+    context: &'context mut DrawContext<'window, ImageKey, MeshKey, ShaderKey>,
     clear_color: [f32; 4],
     generic_params: [f32; 4],
     cursor_pos: [f32; 2],
@@ -1335,7 +1361,7 @@ where
     time_present: Instant,
 }
 
-impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
+impl<'window, 'context, ImageKey, MeshKey, ShaderKey> Renderer<'window, 'context, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
     MeshKey: Clone + Eq + Hash,
@@ -1455,12 +1481,12 @@ where
                     b: b.into(),
                     a: a.into(),
                 }),
-                store: true,
+                store: wgpu::StoreOp::Store,
             };
 
             let load_op = wgpu::Operations {
                 load: wgpu::LoadOp::Load,
-                store: true,
+                store: wgpu::StoreOp::Store,
             };
 
             for opaque in [true, false] {
@@ -1476,13 +1502,15 @@ where
                             view: self.context.depth_buffer.as_ref().unwrap(),
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
+                                store: wgpu::StoreOp::Store,
                             }),
                             stencil_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(0),
-                                store: true,
+                                store: wgpu::StoreOp::Store,
                             }),
                         }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
                     }),
                     false => commands.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
@@ -1495,13 +1523,15 @@ where
                             view: self.context.depth_buffer.as_ref().unwrap(),
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: false,
+                                store: wgpu::StoreOp::Discard,
                             }),
                             stencil_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: false,
+                                store: wgpu::StoreOp::Discard,
                             }),
                         }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
                     }),
                 };
 
@@ -1822,10 +1852,10 @@ where
 
     pub fn ortho_2d(&mut self) {
         let canvas_properties = self.camera_pass.canvas_config.canvas_properties(
-            dbg!([
+            [
                 self.context.surface_config.width,
                 self.context.surface_config.height,
-            ]),
+            ],
             self.context.scale_factor,
         );
 
@@ -2289,7 +2319,7 @@ where
     }
 }
 
-impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
+impl<'window, 'context, ImageKey, MeshKey, ShaderKey> Renderer<'window, 'context, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash + glace::Asset<Value = image::RgbaImage>,
     MeshKey: Clone + Eq + Hash,
@@ -2322,7 +2352,7 @@ where
     }
 }
 
-impl<'a, ImageKey, MeshKey, ShaderKey> Renderer<'a, ImageKey, MeshKey, ShaderKey>
+impl<'window, 'context, ImageKey, MeshKey, ShaderKey> Renderer<'window, 'context, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash + glace::Asset<Value = image::RgbaImage>,
     MeshKey: Clone + Eq + Hash + glace::Asset<Value = Cow<'static, [u8]>>,
@@ -2423,7 +2453,7 @@ where
     }
 }
 
-impl<'a, ImageKey, MeshKey, ShaderKey> Drop for Renderer<'a, ImageKey, MeshKey, ShaderKey>
+impl<'window, 'context, ImageKey, MeshKey, ShaderKey> Drop for Renderer<'window, 'context, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
     MeshKey: Clone + Eq + Hash,

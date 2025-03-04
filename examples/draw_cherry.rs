@@ -1,9 +1,9 @@
 #[cfg(feature = "draw_cherry")]
 fn main() {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web_platform))]
     pollster::block_on(internal::run());
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web_platform)]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init().expect("could not initialize logger");
@@ -78,14 +78,14 @@ mod internal {
         let (window, event_loop) =
             jamjar::windowing::window_and_event_loop("draw_cherry", [512, 256]).unwrap();
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(web_platform)]
         {
             use winit::platform::web::WindowExtWebSys;
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
                 .and_then(|body| {
-                    body.append_child(&web_sys::Element::from(window.canvas()))
+                    body.append_child(&web_sys::Element::from(window.canvas().expect("Failed to get canvas")))
                         .ok()
                 })
                 .expect("failed to add canvas to document body");
@@ -111,7 +111,10 @@ mod internal {
 
         let mut mouse = WinitMouse::new();
 
-        event_loop.run(move |event, _, control_flow| {
+        event_loop.set_control_flow(jamjar::windowing::event_loop::ControlFlow::Poll);
+        let mut frame_pacer = jamjar::timing::FramePacer::new();
+
+        event_loop.run(move |event, elwt| {
             use jamjar::windowing::event::{Event, WindowEvent};
 
             context.handle_winit_event(&event);
@@ -120,15 +123,16 @@ mod internal {
             match event {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => {
-                        *control_flow = jamjar::windowing::event_loop::ControlFlow::Exit
+                        elwt.exit();
                     }
                     _ => (),
                 },
-                Event::MainEventsCleared => {
+                Event::AboutToWait => {
                     clock.update();
-                    window.request_redraw();
-                }
-                Event::RedrawRequested(_) => {
+                    // let frame_deadline =
+                    //     frame_pacer.deadline_for_fps(60.);
+                    // elwt.set_control_flow(jamjar::windowing::event_loop::ControlFlow::WaitUntil(frame_deadline));
+
                     let mouse_pos = context
                         .window_to_canvas_pos(mouse.position())
                         .unwrap_or([0., 0.]);

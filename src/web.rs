@@ -31,7 +31,7 @@ pub(crate) unsafe fn ensure_events() -> MutexGuard<'static, Vec<WebEvent>> {
     WEB_EVENTS.as_mut().unwrap().lock().unwrap()
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 pub(crate) unsafe fn log_event(event: WebEvent) {
     ensure_events().push(event);
 }

@@ -51,5 +51,5 @@ pub mod web;
 #[cfg(feature = "windowing")]
 pub mod windowing;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 pub use web_sys;

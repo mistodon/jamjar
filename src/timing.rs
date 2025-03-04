@@ -1,12 +1,19 @@
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 use wasm_bindgen::prelude::*;
 
 use std::marker::PhantomData;
-use std::time::{Duration, Instant};
+
+#[cfg(not(web_platform))]
+use std::time as timecrate;
+
+#[cfg(web_platform)]
+use web_time as timecrate;
+
+use timecrate::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 #[wasm_bindgen(inline_js = r#"
 export function _system_secs_f64() {
   return performance.now() / 1000.0;
@@ -15,7 +22,7 @@ extern "C" {
     fn _system_secs_f64() -> f64;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(web_platform))]
 fn _system_secs_f64() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -117,21 +124,21 @@ pub type RealClock = Clock<RealTime>;
 pub type RealTimestamp = Timestamp<RealTime>;
 
 pub struct FramePacer {
-    frame_time: Instant,
+    frame_time: timecrate::Instant,
 }
 
 impl FramePacer {
     pub fn new() -> FramePacer {
         FramePacer {
-            frame_time: Instant::now(),
+            frame_time: timecrate::Instant::now(),
         }
     }
 
-    pub fn deadline_for_fps(&mut self, fps: f64) -> Instant {
-        let now = Instant::now();
+    pub fn deadline_for_fps(&mut self, fps: f64) -> timecrate::Instant {
+        let now = timecrate::Instant::now();
 
         let target_frame_duration = 1. / fps;
-        let frame_deadline = self.frame_time + Duration::from_secs_f64(target_frame_duration);
+        let frame_deadline = self.frame_time + timecrate::Duration::from_secs_f64(target_frame_duration);
 
         if now < frame_deadline {
             self.frame_time = frame_deadline;

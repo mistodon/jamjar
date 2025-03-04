@@ -440,9 +440,11 @@ pub fn web_build(config: &WebBuildConfig) -> Result<PathBuf, JamjarError> {
         let mut cmd = Command::new("wasm-bindgen");
         cmd.current_dir(&cwd)
             .arg(wasm_path)
+            .arg("--target")
+            .arg("web")
+            .arg("--no-typescript")
             .arg("--out-dir")
-            .arg(&config.output_dir)
-            .arg("--web");
+            .arg(&config.output_dir);
         cmd.stdout(Stdio::inherit());
 
         let output = cmd.output()?;

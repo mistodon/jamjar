@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 use wasm_bindgen::closure::Closure;
 
 use winit::{
@@ -9,12 +9,12 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 use crate::web::{self, TouchPhase, WebEvent};
 
 pub use winit::*;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(web_platform)]
 fn web_window_size() -> LogicalSize<f64> {
     let win = web_sys::window().unwrap();
     let (w, h) = (
@@ -28,7 +28,7 @@ pub fn window_and_event_loop(
     title: &str,
     logical_size: [u32; 2],
 ) -> Result<(Rc<Window>, EventLoop<()>), winit::error::OsError> {
-    let event_loop = EventLoop::<()>::new();
+    let event_loop = EventLoop::<()>::new().expect("Error creating EventLoop");
 
     window(&event_loop, title, logical_size).map(|w| (w, event_loop))
 }
@@ -49,10 +49,10 @@ pub fn window(
 
     let window = window_builder.build(event_loop);
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web_platform)]
     let sys_window = web_sys::window().unwrap();
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web_platform)]
     if let Ok(window) = window.as_ref() {
         use wasm_bindgen::JsCast;
 
@@ -60,11 +60,12 @@ pub fn window(
             unsafe { web::log_event(WebEvent::KeyTyped(e.key())) };
         }) as Box<dyn FnMut(_)>);
 
-        let canvas = winit::platform::web::WindowExtWebSys::canvas(window);
+        let canvas = winit::platform::web::WindowExtWebSys::canvas(window).expect("Failed to get canvas");
 
-        canvas
-            .add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
-            .unwrap();
+        // TODO
+        // canvas
+        //     .add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
+        //     .unwrap();
 
         keydown.forget();
 
@@ -79,20 +80,20 @@ pub fn window(
 
     let window = window.map(Rc::new);
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web_platform)]
     if let Ok(window_ptr) = window.as_ref().map(Rc::clone) {
         use wasm_bindgen::JsCast;
 
         let sf = window_ptr.scale_factor();
         let size = web_window_size().to_physical::<u32>(sf);
-        window_ptr.set_inner_size(size);
+        window_ptr.request_inner_size(size);
         unsafe { web::log_event(WebEvent::Resized(size)) };
 
         let window = Rc::clone(&window_ptr);
         let resize = Closure::wrap(Box::new(move |_: web_sys::Event| {
             let sf = window.scale_factor();
             let size = web_window_size().to_physical::<u32>(sf);
-            window.set_inner_size(size);
+            window.request_inner_size(size);
             unsafe { web::log_event(WebEvent::Resized(size)) };
         }) as Box<dyn FnMut(_)>);
 

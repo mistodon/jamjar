@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(web_platform))]
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
@@ -102,10 +102,10 @@ enum AudioCmd<K: Clone> {
 }
 
 pub struct Mixer<K: 'static + Clone + Send + Eq + Hash> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web_platform))]
     sender: Sender<AudioCmd<K>>,
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web_platform)]
     speaker: Speaker<K>,
 
     _thread: Option<JoinHandle<()>>,
@@ -129,7 +129,7 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
         let feedback_buffer = Arc::new(Mutex::new(Vec::new()));
         let feedback_buffer_ref = Arc::clone(&feedback_buffer);
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(web_platform))]
         {
             let (sender, receiver) = mpsc::channel();
 
@@ -149,7 +149,7 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(web_platform)]
         {
             let speaker = Speaker::new(feedback_buffer_ref);
             Mixer {
@@ -248,12 +248,12 @@ impl<K: 'static + Clone + Send + Eq + Hash> Mixer<K> {
     }
 
     fn unchecked_send(&mut self, cmd: AudioCmd<K>) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(web_platform))]
         if self._thread.is_some() {
             self.sender.send(cmd).unwrap();
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(web_platform)]
         self.speaker.process(cmd);
     }
 }
@@ -273,7 +273,7 @@ impl<K: Clone> TrackState<K> {
 }
 
 struct Speaker<K: Clone + Send + Eq + Hash> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web_platform))]
     receiver: Receiver<AudioCmd<K>>,
 
     context: Option<(OutputStream, OutputStreamHandle)>,
@@ -288,11 +288,11 @@ struct Speaker<K: Clone + Send + Eq + Hash> {
 
 impl<K: Clone + Send + Eq + Hash + 'static> Speaker<K> {
     pub fn new(
-        #[cfg(not(target_arch = "wasm32"))] receiver: Receiver<AudioCmd<K>>,
+        #[cfg(not(web_platform))] receiver: Receiver<AudioCmd<K>>,
         feedback_buffer: Arc<Mutex<Vec<Feedback<K>>>>,
     ) -> Self {
         Speaker {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(web_platform))]
             receiver,
             context: None,
             sound_volume: 1.0,
@@ -332,7 +332,7 @@ impl<K: Clone + Send + Eq + Hash + 'static> Speaker<K> {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web_platform))]
     pub fn listen(&mut self) -> bool {
         let cmd = self.receiver.recv().unwrap();
         self.process(cmd)
