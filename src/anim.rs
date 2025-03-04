@@ -1,6 +1,8 @@
+use serde::{Serialize, Deserialize};
+
 use crate::timing::{LogicTime, Timestamp};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LoopType {
     Once,
     Loop,
@@ -220,7 +222,7 @@ pub mod data_anim {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Anim<Clock: Copy = LogicTime> {
     pub start: Timestamp<Clock>,
     pub duration: f64,

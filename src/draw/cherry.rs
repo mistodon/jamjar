@@ -4,8 +4,15 @@ use std::{
     collections::HashMap,
     hash::Hash,
     ops::Range,
-    time::{Duration, Instant},
 };
+
+#[cfg(not(web_platform))]
+use std::time as timecrate;
+
+#[cfg(web_platform)]
+use web_time as timecrate;
+
+use timecrate::{Duration, Instant};
 
 use hvec::HVec;
 use image::RgbaImage;
@@ -496,8 +503,8 @@ where
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
-            width: size.width,
-            height: size.height,
+            width: std::cmp::max(100, size.width),
+            height: std::cmp::max(100, size.height),
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![swapchain_format],
