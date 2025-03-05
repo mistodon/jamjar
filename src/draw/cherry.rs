@@ -6,6 +6,7 @@ use std::{
     ops::Range,
     path::PathBuf,
     sync::Arc,
+    time::SystemTime,
 };
 
 #[cfg(not(web_platform))]
@@ -751,7 +752,8 @@ where
             time_prev_frame_submit: None,
             frame_stats: RenderStats::default(),
 
-            storage: FrameStorage::new(),+            editor_context: EditorContext {
+            storage: FrameStorage::new(),
+            editor_context: EditorContext {
                 shown: false,
                 file: None,
                 mode: EditMode::Default,
@@ -1334,7 +1336,6 @@ where
             clear_color,
             generic_params,
             cursor_pos,
-            camera_passes: Vec::with_capacity(4),
             camera_pass: CameraPass {
                 canvas_config,
                 view: Mat4::identity(),
@@ -1374,11 +1375,6 @@ impl<ShaderKey> FrameStorage<ShaderKey> {
             push_constants: vec![],
             uniform_indices: HashMap::default(),
             uniform_bytes: HashMap::default(),
-            time_created: Instant::now(),
-            time_render_start: Instant::now(),
-            time_render_end: Instant::now(),
-            time_submit: Instant::now(),
-            time_present: Instant::now(),
         }
     }
 
@@ -1458,7 +1454,7 @@ where
         }
 
         let mut stats = RenderStats {
-            camera_passes: self.camera_passes.len(),
+            camera_passes: self.context.storage.camera_passes.len(),
             frame: self.context.frame_stats.frame + 1,
             pipeline_changes: 0,
             binding_changes: 0,
@@ -1514,6 +1510,8 @@ where
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Passes
+        let cams = self.context.storage.camera_passes.len();
+        println!("Camera passes {cams}");
         for (i, camera_pass) in self.context.storage.camera_passes.iter().enumerate() {
             let canvas_properties = camera_pass.canvas_config.canvas_properties(
                 [
@@ -2342,7 +2340,7 @@ where
                 push_range: start_index..end_index,
             });
         } else {
-            self..context.storage.opaque_calls.push(DrawCall {
+            self.context.storage.opaque_calls.push(DrawCall {
                 phase,
                 depth: 0 * D,
                 shader_index,

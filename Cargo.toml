@@ -29,7 +29,7 @@ draw_sloth = ["gfx", "windowing"]
 draw_groove = ["gfx", "math", "windowing"]
 draw_forever = ["gfx", "math", "windowing"]
 draw_popup = ["dep:hvec", "font", "gltf", "wgpu", "math", "windowing"]
-draw_cherry = ["bitflags", "dep:hvec", "font", "gltf", "wgpu", "math", "windowing", "dep:web-time"]
+draw_cherry = ["bitflags", "dep:hvec", "font", "gltf", "wgpu", "math", "windowing", "dep:web-time", "dep:serde_yaml", "dep:dbgcmd"]
 dymod = ["dep:dymod"]
 font = ["dep:rusttype"]
 gfx = ["dep:gfx-hal", "dep:gfx-auxil", "dep:image"]
@@ -76,6 +76,11 @@ serde_yaml = { version = "0.8", optional = true }
 texture_packer = { version = "0.24", optional = true }
 toml = { version = "0.5", optional = true }
 wgpu = { version = "24", features = ["webgl"], optional = true }
+
+[dependencies.dbgcmd]
+version = "0.3"
+# git = "https://github.com/mistodon/dbgcmd"
+optional = true
 
 [dependencies.glace]
 version = "0.3"
