@@ -1829,6 +1829,23 @@ where
         self.set_view(Mat4::identity().0);
     }
 
+    // TODO: This is a travesty.
+    // Edit: idek what this does
+    pub fn project_point(&self, point: [f32; 3]) -> [f32; 3] {
+        let mut projected = self.camera_pass.vp_matrix * Vec3::from(point).extend(1.);
+        projected /= projected.0[3];
+        let mut projected = (projected.retract() + vec3(1., 1., 0.)) * 0.5;
+        projected.0[1] = 1. - projected.0[1];
+
+        let canvas_properties = self.context.canvas_config.canvas_properties(
+            [self.context.surface_config.width, self.context.surface_config.height],
+            self.context.scale_factor,
+        );
+
+        let canvas_size = Vec2::from(canvas_properties.logical_canvas_size).extend(1.);
+        (projected * canvas_size).0
+    }
+
     pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
         if self.camera_pass.used {
             self.end_camera_pass(Some(canvas_config.clone())); // TODO: hmmm...

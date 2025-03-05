@@ -238,6 +238,14 @@ impl<Clock: Copy> Anim<Clock> {
         }
     }
 
+    pub fn empty() -> Self {
+        Anim {
+            start: Timestamp::zero(),
+            duration: 0.,
+            loop_type: LoopType::Once,
+        }
+    }
+
     pub fn looped(start: Timestamp<Clock>, duration: f64) -> Self {
         Anim {
             start,
