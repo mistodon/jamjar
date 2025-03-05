@@ -4,6 +4,8 @@ use rusttype::{Font as RTFont, GlyphId, Point, PositionedGlyph, Scale, ScaledGly
 
 use crate::layout::Frame;
 
+const BUILT_IN_FONT: &[u8] = include_bytes!("../assets/fonts/monofonto.otf");
+
 static mut FONT_COUNT: AtomicU16 = AtomicU16::new(0);
 
 pub(crate) type FontId = u16;
@@ -36,6 +38,10 @@ impl Font {
             font,
             default_size,
         }
+    }
+
+    pub fn load_default() -> Self {
+        Font::new(BUILT_IN_FONT.to_owned(), 16.)
     }
 
     pub fn glyph(&self, ch: char, pos: [f32; 2], scale_factor: f64, size: Option<f32>) -> Glyph {

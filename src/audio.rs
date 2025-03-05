@@ -6,8 +6,13 @@ use std::{
     io::Cursor,
     sync::{Arc, Mutex},
     thread::JoinHandle,
-    time::Duration,
 };
+
+#[cfg(web_platform)]
+use web_time::Duration;
+
+#[cfg(not(web_platform))]
+use std::time::Duration;
 
 #[cfg(not(web_platform))]
 use std::sync::mpsc::{self, Receiver, Sender};
