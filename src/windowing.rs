@@ -29,6 +29,7 @@ pub fn window_and_event_loop(
     logical_size: [u32; 2],
 ) -> Result<(Arc<Window>, EventLoop<()>), winit::error::OsError> {
     let event_loop = EventLoop::<()>::new().expect("TODO: Handle this error case");
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
     window(&event_loop, title, logical_size).map(|w| (w, event_loop))
 }

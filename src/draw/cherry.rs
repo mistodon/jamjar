@@ -1,12 +1,6 @@
 use std::{
-    any::TypeId,
-    borrow::Cow,
-    collections::HashMap,
-    hash::Hash,
-    ops::Range,
-    path::PathBuf,
-    sync::Arc,
-    time::SystemTime,
+    any::TypeId, borrow::Cow, collections::HashMap, hash::Hash, ops::Range, path::PathBuf,
+    sync::Arc, time::SystemTime,
 };
 
 #[cfg(not(web_platform))]
@@ -57,6 +51,39 @@ const DEFER_CREATE_SURFACE: bool = true;
 
 #[cfg(not(android_platform))]
 const DEFER_CREATE_SURFACE: bool = false;
+
+#[track_caller]
+fn default_wgpu_error_handler(err: wgpu::Error) {
+    // log::error!("Handling wgpu errors as fatal by default");
+    panic!("wgpu error: {err}\n");
+}
+
+#[cfg(not(web_platform))]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(not(web_platform))]
+static mut WGPU_ERROR_FLAG: AtomicBool = AtomicBool::new(false);
+
+#[track_caller]
+fn static_wgpu_error_handler(err: wgpu::Error) {
+    #[cfg(not(web_platform))]
+    unsafe {
+        WGPU_ERROR_FLAG.store(true, Ordering::Relaxed);
+    }
+    eprintln!("wgpu error: {err}\n");
+}
+
+fn wgpu_error_occurred() -> bool {
+    #[cfg(not(web_platform))]
+    unsafe {
+        WGPU_ERROR_FLAG.fetch_and(false, Ordering::Relaxed)
+    }
+
+    #[cfg(web_platform)]
+    {
+        false
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct RenderStats {
@@ -133,6 +160,7 @@ pub enum BuiltinImage {
 pub enum BuiltinMesh {
     Quad,
     Sprite,
+    Glyph3D,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -311,6 +339,7 @@ struct GlyphCtx {
     count: u16,
     tint: [f32; 4],
     vp_matrix: Mat4<f32>,
+    model_matrix: Mat4<f32>,
 }
 
 fn push_constant_bytes<T: 'static>(t: &T) -> &[u8] {
@@ -506,6 +535,8 @@ where
                 None,
             )
             .await?;
+
+        device.on_uncaptured_error(Box::new(default_wgpu_error_handler));
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
@@ -820,6 +851,36 @@ where
             indices: vec![0, 1, 2, 1, 3, 2],
         };
 
+        let glyph3d_mesh = Mesh {
+            vertices: vec![
+                Vertex {
+                    position: [0., 0., 0., 1.],
+                    normal: [0., 0., 1., 0.],
+                    uv: [0., 0., 0., 0.],
+                    color: [1., 1., 1., 1.],
+                },
+                Vertex {
+                    position: [1., 0., 0., 1.],
+                    normal: [0., 0., 1., 0.],
+                    uv: [1., 0., 0., 0.],
+                    color: [1., 1., 1., 1.],
+                },
+                Vertex {
+                    position: [0., 1., 0., 1.],
+                    normal: [0., 0., 1., 0.],
+                    uv: [0., 1., 0., 0.],
+                    color: [1., 1., 1., 1.],
+                },
+                Vertex {
+                    position: [1., 1., 0., 1.],
+                    normal: [0., 0., 1., 0.],
+                    uv: [1., 1., 0., 0.],
+                    color: [1., 1., 1., 1.],
+                },
+            ],
+            indices: vec![0, 2, 1, 1, 2, 3],
+        };
+
         result.load_shader_internal::<BasicPush, ()>(
             AssetKey::Builtin(BuiltinShader::Basic),
             BUILTIN_SHADER,
@@ -846,6 +907,7 @@ where
 
         result.load_mesh_internal(AssetKey::Builtin(BuiltinMesh::Quad), quad_mesh);
         result.load_mesh_internal(AssetKey::Builtin(BuiltinMesh::Sprite), sprite_mesh);
+        result.load_mesh_internal(AssetKey::Builtin(BuiltinMesh::Glyph3D), glyph3d_mesh);
 
         result.load_image_internal(BuiltinImage::White, {
             let bytes = include_bytes!("../../assets/images/white.png");
@@ -1050,6 +1112,22 @@ where
         }
     }
 
+    pub fn reload_shader(&mut self, key: ShaderKey, source: impl AsRef<str>) {
+        let name = AssetKey::Key(key);
+        let shader_index = self.shader_mapping.get(&name).unwrap();
+        let shader_index = *shader_index as usize;
+
+        // TODO: Okay, this is insane, but we're going to actually pop it out and re-insert it to hide from the borrow checker. Bad idea long term.
+        let (name, mut pipeline_entry) = self.pipelines.remove(shader_index);
+
+        if let Some((opaque_pipeline, trans_pipeline)) = self.make_pipelines(&pipeline_entry.layout, source.as_ref(), pipeline_entry.conf) {
+            pipeline_entry.opaque = opaque_pipeline;
+            pipeline_entry.trans = trans_pipeline;
+        }
+
+        self.pipelines.insert(shader_index, (name, pipeline_entry));
+    }
+
     fn load_shader_internal<P: 'static, U: 'static>(
         &mut self,
         name: ShaderAssetKey<ShaderKey>,
@@ -1080,6 +1158,34 @@ where
                 }],
             });
 
+        let (opaque_pipeline, trans_pipeline) = self.make_pipelines(&pipeline_layout, source, conf).unwrap();
+
+        let uniforms_layout = self.custom_layouts.get(&name);
+        let shader_index = self.pipelines.len() as u8;
+        self.shader_mapping.insert(name.clone(), shader_index);
+        self.pipelines.push((
+            name.clone(),
+            PipelineEntry {
+                layout: pipeline_layout,
+                opaque: opaque_pipeline,
+                trans: trans_pipeline,
+                push_type,
+                push_size,
+                uniform_type: uniforms_layout.map(|_| TypeId::of::<U>()),
+                uniform_size: std::mem::size_of::<U>(),
+                conf,
+            },
+        ));
+    }
+
+    // TODO: Better error handling
+    fn make_pipelines(
+        &mut self,
+        pipeline_layout: &wgpu::PipelineLayout,
+        source: &str,
+        conf: ShaderConf,
+    ) -> Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)> {
+
         let mut shader_source = SHADER_HEADER.to_string();
         shader_source.push_str(source);
 
@@ -1096,12 +1202,20 @@ where
             attributes: &vertex_attributes,
         };
 
+        self.device.on_uncaptured_error(Box::new(static_wgpu_error_handler));
+
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: None,
                 source: wgpu::ShaderSource::Wgsl(shader_source.into()),
             });
+
+        if wgpu_error_occurred() {
+            return None;
+        }
+
+        self.device.on_uncaptured_error(Box::new(default_wgpu_error_handler));
 
         let y_flipped = conf.shader_flags.contains(ShaderFlags::Y_FLIPPED);
         let back_face = conf.shader_flags.contains(ShaderFlags::BACK_FACE_ONLY);
@@ -1205,7 +1319,7 @@ where
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: Some(&pipeline_layout),
+                layout: Some(pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vertex_main"),
@@ -1230,7 +1344,7 @@ where
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: Some(&pipeline_layout),
+                layout: Some(pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vertex_main"),
@@ -1251,18 +1365,7 @@ where
                 cache: None,
             });
 
-        let shader_index = self.pipelines.len() as u8;
-        self.shader_mapping.insert(name.clone(), shader_index);
-        self.pipelines.push((name.clone(), PipelineEntry {
-            layout: pipeline_layout,
-            opaque: opaque_pipeline,
-            trans: trans_pipeline,
-            push_type,
-            push_size,
-            uniform_type: uniforms_layout.map(|_| TypeId::of::<U>()),
-            uniform_size: std::mem::size_of::<U>(),
-            conf,
-        }));
+        Some((opaque_pipeline, trans_pipeline))
     }
 
     fn prepare_for_frame(&mut self) {
@@ -1469,11 +1572,14 @@ where
                 .map(|v| v.len())
                 .sum::<usize>(),
             opaque_bytes: self.context.storage.opaque_calls.len() * std::mem::size_of::<DrawCall>(),
-            transparent_bytes: self.context.storage.trans_calls.len() * std::mem::size_of::<DrawCall>(),
+            transparent_bytes: self.context.storage.trans_calls.len()
+                * std::mem::size_of::<DrawCall>(),
             glyph_bytes: self.context.storage.glyph_buffer.bytes_len(),
             push_constant_bytes: self.context.storage.push_constants.len(),
             uniform_bytes: self
-                .context.storage.uniform_bytes
+                .context
+                .storage
+                .uniform_bytes
                 .values()
                 .map(|(_, v)| v.len())
                 .sum::<usize>(),
@@ -1510,8 +1616,6 @@ where
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Passes
-        let cams = self.context.storage.camera_passes.len();
-        println!("Camera passes {cams}");
         for (i, camera_pass) in self.context.storage.camera_passes.iter().enumerate() {
             let canvas_properties = camera_pass.canvas_config.canvas_properties(
                 [
@@ -1605,8 +1709,12 @@ where
                 let mut active_uniforms = None;
 
                 let calls = match opaque {
-                    true => &self.context.storage.opaque_calls[camera_pass.opaque_call_range.clone()],
-                    false => &self.context.storage.trans_calls[camera_pass.trans_call_range.clone()],
+                    true => {
+                        &self.context.storage.opaque_calls[camera_pass.opaque_call_range.clone()]
+                    }
+                    false => {
+                        &self.context.storage.trans_calls[camera_pass.trans_call_range.clone()]
+                    }
                 };
 
                 for call in calls {
@@ -1636,7 +1744,8 @@ where
                         if active_uniforms != call.uniforms_index {
                             stats.uniform_changes += 1;
 
-                            let uniform_type_key = &self.context.pipelines[call.shader_index as usize].0;
+                            let uniform_type_key =
+                                &self.context.pipelines[call.shader_index as usize].0;
 
                             pass.set_bind_group(
                                 2,
@@ -1714,14 +1823,17 @@ where
             }
         }
 
-        let mut glyph_buffer =
-            std::mem::replace(&mut self.context.storage.glyph_buffer, HVec::with_capacity(128, 128)).into_iter();
+        let mut glyph_buffer = std::mem::replace(
+            &mut self.context.storage.glyph_buffer,
+            HVec::with_capacity(128, 128),
+        )
+        .into_iter();
 
         while let Some(ctx) = unsafe { glyph_buffer.next_unchecked::<GlyphCtx>() } {
             for i in 0..ctx.count {
                 let glyph = unsafe { glyph_buffer.next_unchecked::<Glyph>().unwrap() };
                 let draw_call_index = ctx.draw_call_index + i as usize;
-                self.glyph_internal(draw_call_index, &glyph, ctx.tint, ctx.vp_matrix);
+                self.glyph_internal(draw_call_index, &glyph, &ctx);
             }
         }
     }
@@ -1769,15 +1881,19 @@ where
             vp_matrix: current.vp_matrix,
             used: false,
             global_bind_index: current.global_bind_index + 1,
-            opaque_call_range: self.context.storage.opaque_calls.len()..self.context.storage.opaque_calls.len(),
-            trans_call_range: self.context.storage.trans_calls.len()..self.context.storage.trans_calls.len(),
+            opaque_call_range: self.context.storage.opaque_calls.len()
+                ..self.context.storage.opaque_calls.len(),
+            trans_call_range: self.context.storage.trans_calls.len()
+                ..self.context.storage.trans_calls.len(),
         };
         let mut current = std::mem::replace(&mut self.camera_pass, new_pass);
 
         self.update_globals(&current);
 
-        current.opaque_call_range = current.opaque_call_range.start..(self.context.storage.opaque_calls.len());
-        current.trans_call_range = current.trans_call_range.start..(self.context.storage.trans_calls.len());
+        current.opaque_call_range =
+            current.opaque_call_range.start..(self.context.storage.opaque_calls.len());
+        current.trans_call_range =
+            current.trans_call_range.start..(self.context.storage.trans_calls.len());
 
         self.context.storage.camera_passes.push(current);
     }
@@ -1878,7 +1994,10 @@ where
         projected.0[1] = 1. - projected.0[1];
 
         let canvas_properties = self.context.canvas_config.canvas_properties(
-            [self.context.surface_config.width, self.context.surface_config.height],
+            [
+                self.context.surface_config.width,
+                self.context.surface_config.height,
+            ],
             self.context.scale_factor,
         );
 
@@ -2001,8 +2120,7 @@ where
         &mut self,
         draw_call_index: usize,
         glyph: &Glyph,
-        tint: [f32; 4],
-        vp_matrix: Mat4<f32>,
+        ctx: &GlyphCtx,
     ) {
         let region = self.context.font_atlas.fetch(glyph);
         if let Some(region) = region {
@@ -2014,37 +2132,47 @@ where
             let ([u, v], [us, vs]) = region.uv;
 
             let base_push = BasePush {
-                transform: (vp_matrix
+                transform: (ctx.vp_matrix
+                    * ctx.model_matrix
+                    * Mat4::scale([1., -1., 1., 1.]) // TODO: ONLY DO this for 3D text, somehow. Maybe have flipped as an option here? Actually, maybe we can get rid of the yflip shader? Probably not yet, but maybe if we think real smart about it.
                     * Mat4::translation([x, y, 0.])
                     * Mat4::scale([w, h, 1., 1.]))
                 .0,
                 uv_offset_scale: [u, v, us, vs],
             };
             let push = BasicPush {
-                tint,
+                tint: ctx.tint,
                 emission: color::TRANS,
             };
             let start_index = self.context.storage.push_constants.len();
             let base_push_bytes = push_constant_bytes(&base_push);
-            self.context.storage.push_constants.extend_from_slice(base_push_bytes);
+            self.context
+                .storage
+                .push_constants
+                .extend_from_slice(base_push_bytes);
             let push_bytes = push_constant_bytes(&push);
-            self.context.storage.push_constants.extend_from_slice(push_bytes);
+            self.context
+                .storage
+                .push_constants
+                .extend_from_slice(push_bytes);
             let end_index = self.context.storage.push_constants.len();
 
             self.context.storage.trans_calls[draw_call_index].push_range = start_index..end_index;
         }
     }
 
-
     fn draw_tinted_overlay(&mut self) {
-        self.stored_sprite(BuiltinImage::White, SpriteParams {
-            pos: [-40., -40.],
-            pixelly: false,
-            tint: [0.125, 0., 0.5, 0.75],
-            size: Size::Set([4000., 4000.]),
-            pivot: Pivot::TL,
-            .. Default::default()
-        });
+        self.stored_sprite(
+            BuiltinImage::White,
+            SpriteParams {
+                pos: [-40., -40.],
+                pixelly: false,
+                tint: [0.125, 0., 0.5, 0.75],
+                size: Size::Set([4000., 4000.]),
+                pivot: Pivot::TL,
+                ..Default::default()
+            },
+        );
     }
 
     pub fn draw_console(&mut self, console: &dbgcmd::Console) {
@@ -2052,13 +2180,28 @@ where
             self.ortho_2d();
             self.draw_tinted_overlay();
 
-            let (cur, glyphs) = self.context.built_in_font.layout_line_cur(console.entry(), [4., 4.], self.context.scale_factor, None);
-            let glyphs_2 = self.context.built_in_font.layout_line("|", cur.into(), self.context.scale_factor, None);
+            let (cur, glyphs) = self.context.built_in_font.layout_line_cur(
+                console.entry(),
+                [4., 4.],
+                self.context.scale_factor,
+                None,
+            );
+            let glyphs_2 = self.context.built_in_font.layout_line(
+                "|",
+                cur.into(),
+                self.context.scale_factor,
+                None,
+            );
             self.glyphs(&glyphs, [0., 0.], [0., 1., 0., 1.], D, false);
             self.glyphs(&glyphs_2, [0., 0.], [0., 0.5, 0., 1.], D, false);
 
             for (i, line) in console.history().take(32).enumerate() {
-                let glyphs = self.context.built_in_font.layout_line(line, [8., 4. + (i as f32 + 1.) * 16.], self.context.scale_factor, None);
+                let glyphs = self.context.built_in_font.layout_line(
+                    line,
+                    [8., 4. + (i as f32 + 1.) * 16.],
+                    self.context.scale_factor,
+                    None,
+                );
                 self.glyphs(&glyphs, [0., 0.], [0., 0.5, 0., 1.], D, false);
             }
         }
@@ -2086,7 +2229,12 @@ where
 
         for (key, value) in mapping.iter() {
             if let Value::String(s) = key {
-                let glyphs = self.context.built_in_font.layout_line(s, [4. + dx, 4. + *dy], self.context.scale_factor, None);
+                let glyphs = self.context.built_in_font.layout_line(
+                    s,
+                    [4. + dx, 4. + *dy],
+                    self.context.scale_factor,
+                    None,
+                );
                 self.glyphs(&glyphs, [0., 0.], [0., 1., 0., 1.], D, false);
                 *dy += 16.;
             }
@@ -2096,15 +2244,19 @@ where
         }
     }
 
-    pub fn glyphs<'g, I>(
+    pub fn glyphs3d<'g, S, I>(
         &mut self,
         glyphs: I,
+        shader: S,
+        model_matrix: [[f32; 4]; 4],
         offset: [f32; 2],
         tint: [f32; 4],
         depth: Depth,
         pixelly: bool,
+        sprite2d: bool,
     ) where
         I: IntoIterator<Item = &'g Glyph>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
     {
         let sf = self.context.scale_factor as f32;
         let [dx, dy] = (Vec2::from(offset) * sf as f32).0;
@@ -2122,21 +2274,32 @@ where
             .collect::<Vec<_>>();
         let count = glyphs.len() as u16;
 
-        let shader_index = self.context.shader_mapping[&BuiltinShader::YFlip.into()];
+        let shader_key = shader.into();
+        let shader_index = self.context.shader_mapping[&shader_key];
         let shader_entry = &self.context.pipelines[shader_index as usize].1;
+
+        let mesh_key = match sprite2d {
+            true => BuiltinMesh::Sprite,
+            false => BuiltinMesh::Glyph3D,
+        };
+
         let mesh_index = self
             .context
             .mesh_atlas
-            .fetch_submesh(&(BuiltinMesh::Sprite.into(), MeshVariant::Raw), None)
+            .fetch_submesh(&(mesh_key.into(), MeshVariant::Raw), None)
             .unwrap();
 
         let draw_call_index = self.context.storage.trans_calls.len();
-        self.context.storage.glyph_buffer.push::<GlyphCtx>(GlyphCtx {
-            draw_call_index,
-            count,
-            tint,
-            vp_matrix: self.camera_pass.vp_matrix,
-        });
+        self.context
+            .storage
+            .glyph_buffer
+            .push::<GlyphCtx>(GlyphCtx {
+                draw_call_index,
+                count,
+                tint,
+                vp_matrix: self.camera_pass.vp_matrix,
+                model_matrix: Mat4::new(model_matrix),
+            });
         let px = if pixelly {
             self.context.texture_pages
         } else {
@@ -2157,6 +2320,19 @@ where
             });
         }
         self.camera_pass.used = true;
+    }
+
+    pub fn glyphs<'g, I>(
+        &mut self,
+        glyphs: I,
+        offset: [f32; 2],
+        tint: [f32; 4],
+        depth: Depth,
+        pixelly: bool,
+    ) where
+        I: IntoIterator<Item = &'g Glyph>,
+    {
+        self.glyphs3d(glyphs, BuiltinShader::YFlip, Mat4::identity().0, offset, tint, depth, pixelly, true)
     }
 
     pub fn glyphs_partial<'g, I, F: Fn(char) -> f64>(
@@ -2213,6 +2389,7 @@ where
             count: to_render.len() as u16,
             tint,
             vp_matrix: self.camera_pass.vp_matrix,
+            model_matrix: Mat4::identity(),
         });
 
         let px = if pixelly {
@@ -2289,7 +2466,10 @@ where
 
         if shader_entry.conf.push_flags.contains(PushFlags::TRANSFORM) {
             let push_bytes = push_constant_bytes(&base_push.transform);
-            self.context.storage.push_constants.extend_from_slice(push_bytes);
+            self.context
+                .storage
+                .push_constants
+                .extend_from_slice(push_bytes);
         }
         if shader_entry
             .conf
@@ -2297,15 +2477,24 @@ where
             .contains(PushFlags::MODEL_MATRIX)
         {
             let push_bytes = push_constant_bytes(&model_matrix);
-            self.context.storage.push_constants.extend_from_slice(push_bytes);
+            self.context
+                .storage
+                .push_constants
+                .extend_from_slice(push_bytes);
         }
         if shader_entry.conf.push_flags.contains(PushFlags::ATLAS_UV) {
             let push_bytes = push_constant_bytes(&base_push.uv_offset_scale);
-            self.context.storage.push_constants.extend_from_slice(push_bytes);
+            self.context
+                .storage
+                .push_constants
+                .extend_from_slice(push_bytes);
         }
 
         let push_bytes = push_constant_bytes(&push);
-        self.context.storage.push_constants.extend_from_slice(push_bytes);
+        self.context
+            .storage
+            .push_constants
+            .extend_from_slice(push_bytes);
 
         let end_index = self.context.storage.push_constants.len();
 
@@ -2316,7 +2505,9 @@ where
             } else {
                 let bytes = unsafe { std::slice::from_raw_parts(ptr, uniform_size) };
                 let buffer = self
-                    .context.storage.uniform_bytes
+                    .context
+                    .storage
+                    .uniform_bytes
                     .entry(shader.clone())
                     .or_insert((uniform_size, vec![]));
                 let buffer = &mut buffer.1;
@@ -2578,7 +2769,8 @@ where
     }
 }
 
-impl<'context, ImageKey, MeshKey, ShaderKey> Drop for Renderer<'context, ImageKey, MeshKey, ShaderKey>
+impl<'context, ImageKey, MeshKey, ShaderKey> Drop
+    for Renderer<'context, ImageKey, MeshKey, ShaderKey>
 where
     ImageKey: Clone + Eq + Hash,
     MeshKey: Clone + Eq + Hash,
@@ -2586,6 +2778,7 @@ where
 {
     fn drop(&mut self) {
         self.render();
+        self.context.storage.clear();
     }
 }
 

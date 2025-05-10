@@ -138,7 +138,8 @@ impl FramePacer {
         let now = timecrate::Instant::now();
 
         let target_frame_duration = 1. / fps;
-        let frame_deadline = self.frame_time + timecrate::Duration::from_secs_f64(target_frame_duration);
+        let frame_deadline =
+            self.frame_time + timecrate::Duration::from_secs_f64(target_frame_duration);
 
         if now < frame_deadline {
             self.frame_time = frame_deadline;

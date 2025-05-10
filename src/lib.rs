@@ -51,5 +51,8 @@ pub mod web;
 #[cfg(feature = "windowing")]
 pub mod windowing;
 
+#[cfg(feature = "windowing")]
+pub use winit;
+
 #[cfg(web_platform)]
 pub use web_sys;

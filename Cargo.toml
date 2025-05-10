@@ -84,8 +84,9 @@ optional = true
 
 [dependencies.glace]
 version = "0.3"
-git = "https://github.com/mistodon/glace"
-rev = "7e0bc9c"
+# git = "https://github.com/mistodon/glace"
+# rev = "7e0bc9c"
+path = "../glace/glace/glace"
 optional = true
 
 [dependencies.okmath]
@@ -102,7 +103,7 @@ gfx-auxil = { version = "0.10", optional = true }
 rodio = { version = "0.17", optional = true, features = ["flac", "vorbis", "wav", "wasm-bindgen"], default-features = false }
 wasm-bindgen = { version = "0.2.97", optional = true }
 wasm-bindgen-futures = { version = "0.4" }
-web-time = { version = "1", optional = true }
+web-time = { version = "0.2.4", optional = true }
 winit = { version = "0.29", optional = true }
 wgpu = { version = "24", features = ["webgl"], optional = true }
 

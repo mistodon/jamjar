@@ -1,3 +1,9 @@
+# AGITPUNK
+
+- [ ] We can get rid of YFlip shader stuff. Basically we should flip in the VP matrix for 2D stuff, and have sprite meshes with two different winding orders to compensate. So it's the _camera pass_ that determines whether we're using y-up or y-down rendering.
+
+=== Everything below here is lame, only focus on the game-specific issue above for now. ===
+
 # Popup:
 
 # Jamjar

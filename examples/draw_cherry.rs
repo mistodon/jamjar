@@ -85,8 +85,10 @@ mod internal {
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
                 .and_then(|body| {
-                    body.append_child(&web_sys::Element::from(window.canvas().expect("Failed to get canvas")))
-                        .ok()
+                    body.append_child(&web_sys::Element::from(
+                        window.canvas().expect("Failed to get canvas"),
+                    ))
+                    .ok()
                 })
                 .expect("failed to add canvas to document body");
         }
@@ -196,6 +198,24 @@ mod internal {
                     });
 
                     ren.perspective_3d(1.0);
+
+                    let text_label_transform = Mat4::translation([0., 1.0, 2.]) * Mat4::scale([0.01, 0.01, 1., 1.]);
+
+                    let c3d = font.layout_wrapped("AH!\nI wish this was the right way up.", [0., 0.], sf, None, 9e9, 1., None);
+                    ren.glyphs3d(&c3d, BuiltinShader::Basic, text_label_transform.0, [0., 0.], [1., 1., 0., 1.], 5 * D, false, false);
+
+                    ren.draw(
+                        BuiltinShader::Basic,
+                        BuiltinImage::White,
+                        &Mesh::ColorCube,
+                        text_label_transform.0,
+                        BasicPush::default(),
+                        &(),
+                        false,
+                        None,
+                    );
+
+
                     ren.draw(
                         BuiltinShader::Basic,
                         BuiltinImage::White,
@@ -258,20 +278,13 @@ mod internal {
     }
 
     const A: &'static str = r###"
-    Well, he collapsed with Stevens-Johnson Syndrome on the E.R. floor
-    Panic attacked, anaphylactic and ataxic
-    Well the way he spun his butterfly risked all six his phalanges
-    Roman candles at both ends in his synapses
-    And the method with which he recycled his humors
-    Trojan Horse’d his blood-brain barrier and raised the LD-50, yes, yes
-    And through flight-or-fight revelation shame, the Black Box Warrior
-    He skipped this town and headed straight down history
+    Text A
     "###;
 
     const B: &'static str = r###"
-    Shields himself from reason in a Kevlar baby-blue Tuxedo
-    Quilted from the finest fibers, flesh, and fiberglass, and flowers
-    His ego a mosquito, evil incarnate/good incognito
-    Pops placebos for libido, screaming "bless the torpedoes"
+    Text
+    B
+    Fix
+    Later
     "###;
 }
