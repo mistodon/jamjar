@@ -84,9 +84,9 @@ optional = true
 
 [dependencies.glace]
 version = "0.3"
-# git = "https://github.com/mistodon/glace"
-# rev = "7e0bc9c"
-path = "../glace/glace/glace"
+git = "https://github.com/mistodon/glace"
+rev = "8736631"
+# path = "../glace/glace/glace"
 optional = true
 
 [dependencies.okmath]
