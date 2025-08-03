@@ -2005,6 +2005,71 @@ where
         (projected * canvas_size).0
     }
 
+    /// Returns an (origin, direction) ray
+    pub fn screen_point_to_ray(&self, point: [f32; 2]) -> ([f32; 3], [f32; 3]) {
+        let canvas_properties = self.context.canvas_config.canvas_properties(
+            [
+                self.context.surface_config.width,
+                self.context.surface_config.height,
+            ],
+            self.context.scale_factor,
+        );
+        let canvas_size = Vec2::from(canvas_properties.logical_canvas_size);
+        let pixel_pos = Vec2::from(point);
+        let ndc_pos = ((pixel_pos / canvas_size) * 2.) - vec2(1., 1.);
+
+        // TODO: wrong way in vulkan!
+        let near_plane_depth = -1.;
+        let screen_point = ndc_pos.extend(near_plane_depth).extend(1.);
+
+        let pass = &self.camera_pass;
+        let inv_proj = matrix::invert_perspective_matrix(pass.projection);
+        let inv_view = matrix::invert_view_matrix(pass.view);
+
+        let mut eye_point = inv_proj * screen_point;
+        eye_point /= eye_point.0[3];
+
+        let near_plane_world_point = inv_view * eye_point;
+        let camera_origin = inv_view * vec4(0., 0., 0., 1.);
+
+        let ray_origin = near_plane_world_point.retract();
+        let ray_direction = (near_plane_world_point - camera_origin).norm_zero().retract();
+
+        (ray_origin.0, ray_direction.0)
+    }
+
+    pub fn screen_point_to_ray_ortho(&self, point: [f32; 2]) -> ([f32; 3], [f32; 3]) {
+        let canvas_properties = self.context.canvas_config.canvas_properties(
+            [
+                self.context.surface_config.width,
+                self.context.surface_config.height,
+            ],
+            self.context.scale_factor,
+        );
+        let canvas_size = Vec2::from(canvas_properties.logical_canvas_size);
+        let pixel_pos = Vec2::from(point);
+        let ndc_pos = ((pixel_pos / canvas_size) * 2.) - vec2(1., 1.);
+
+        // TODO: wrong way in vulkan!
+        let near_plane_depth = -1.;
+        let screen_point = ndc_pos.extend(near_plane_depth).extend(1.);
+
+        let pass = &self.camera_pass;
+        let inv_proj = matrix::invert_ortho_matrix(pass.projection);
+        let inv_view = matrix::invert_view_matrix(pass.view);
+
+        let mut eye_point = inv_proj * screen_point;
+        eye_point /= eye_point.0[3];
+
+        let near_plane_world_point = inv_view * eye_point;
+        let camera_origin = inv_view * vec4(0., 0., 0., 1.);
+
+        let ray_origin = near_plane_world_point.retract();
+        let ray_direction = (near_plane_world_point - camera_origin).norm_zero().retract();
+
+        (ray_origin.0, ray_direction.0)
+    }
+
     pub fn set_canvas_config(&mut self, canvas_config: CanvasConfig) {
         if self.camera_pass.used {
             self.end_camera_pass(Some(canvas_config.clone())); // TODO: hmmm...
@@ -2096,6 +2161,52 @@ where
 
         self.stored_draw_internal(
             BuiltinShader::YFlip,
+            image,
+            params.cel,
+            BuiltinMesh::Sprite,
+            MeshVariant::Raw,
+            (Mat4::translation([x - pw, y - ph, 0.]) * Mat4::scale([w, h, 1., 1.])).0,
+            BasicPush {
+                tint: params.tint,
+                emission: params.emission,
+            },
+            &(),
+            params.pixelly,
+            Some(params.depth),
+        );
+        Anchor {
+            pos: [x, y],
+            pivot: params.pivot,
+        }
+        .frame([w, h])
+    }
+
+    pub fn experimental_stored_shader_sprite<K: Into<ImageAssetKey<ImageKey>>, S: Into<ShaderAssetKey<ShaderKey>>>(
+        &mut self,
+        image: K,
+        shader: S,
+        params: SpriteParams,
+    ) -> Frame {
+        let image = image.into();
+        let (_page, region) = self.context.image_atlas.fetch(&image).unwrap();
+        let [x, y] = params.pos;
+        let [w, h] = region.size();
+        let [cels_x, cels_y] = params.cel.1;
+        let [def_w, def_h] = [w as f32 / cels_x as f32, h as f32 / cels_y as f32];
+
+        let [w, h] = match params.size {
+            Size::Default => [def_w, def_h],
+            Size::Set(size) => size,
+            Size::SetWidth(w) => [w, (w / def_w) * def_h],
+            Size::SetHeight(h) => [(h / def_h) * def_w, h],
+            Size::Scaled([scale_w, scale_h]) => [def_w * scale_w, def_h * scale_h],
+        };
+
+        let pw = params.pivot.0[0] * w;
+        let ph = params.pivot.0[1] * h;
+
+        self.stored_draw_internal(
+            shader,
             image,
             params.cel,
             BuiltinMesh::Sprite,
@@ -2653,6 +2764,20 @@ where
             }
         }
         self.stored_sprite(image, params)
+    }
+
+    pub fn experimental_shader_sprite<I, S>(&mut self, image: I, shader: S, params: SpriteParams) -> Frame
+    where
+        I: Into<ImageAssetKey<ImageKey>>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
+    {
+        let image = image.into();
+        if let AssetKey::Key(key) = &image {
+            if self.context.image_atlas.fetch(&image).is_none() {
+                self.context.load_image(key.clone(), key.value());
+            }
+        }
+        self.experimental_stored_shader_sprite(image, shader, params)
     }
 
     pub fn image_region<I>(&mut self, image: I) -> Option<(usize, crate::draw::Region)>

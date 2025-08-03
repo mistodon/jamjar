@@ -121,6 +121,11 @@ impl Anchor {
     pub fn down(&self, amount: f32) -> Anchor {
         self.offset([0., amount])
     }
+
+    #[cfg(feature = "font")]
+    pub fn cursor(self) -> crate::font::Cursor {
+        self.into()
+    }
 }
 
 impl From<[f32; 2]> for Anchor {

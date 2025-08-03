@@ -92,7 +92,7 @@ optional = true
 [dependencies.okmath]
 version = "0.3"
 git = "https://github.com/mistodon/okmath"
-rev = "08de4f2"
+rev = "1b7ebcb"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
