@@ -2134,7 +2134,8 @@ where
             let base_push = BasePush {
                 transform: (ctx.vp_matrix
                     * ctx.model_matrix
-                    * Mat4::scale([1., -1., 1., 1.]) // TODO: ONLY DO this for 3D text, somehow. Maybe have flipped as an option here? Actually, maybe we can get rid of the yflip shader? Probably not yet, but maybe if we think real smart about it.
+                    // TODO: ONLY DO this for 3D text, somehow. Maybe have flipped as an option here? Actually, maybe we can get rid of the yflip shader? Probably not yet, but maybe if we think real smart about it.
+                    // * Mat4::scale([1., -1., 1., 1.])
                     * Mat4::translation([x, y, 0.])
                     * Mat4::scale([w, h, 1., 1.]))
                 .0,
