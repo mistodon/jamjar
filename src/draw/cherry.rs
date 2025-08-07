@@ -2098,6 +2098,10 @@ where
         );
     }
 
+    pub fn view_project_matrix(&self) -> [[f32; 4]; 4] {
+        self.camera_pass.vp_matrix.0
+    }
+
     pub fn ortho_2d(&mut self) {
         let canvas_properties = self.camera_pass.canvas_config.canvas_properties(
             [
