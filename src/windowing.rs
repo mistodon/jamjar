@@ -45,8 +45,12 @@ pub fn window(
     };
 
     let mut window_builder = WindowBuilder::new()
-        .with_title(title)
-        .with_inner_size(logical_window_size);
+        .with_title(title);
+
+    #[cfg(not(web_platform))]
+    {
+        window_builder = window_builder.with_inner_size(logical_window_size);
+    }
 
     #[cfg(web_platform)]
     {

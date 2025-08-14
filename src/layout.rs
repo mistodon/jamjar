@@ -194,6 +194,14 @@ impl Frame {
         self.size
     }
 
+    pub const fn width(&self) -> f32 {
+        self.size[0]
+    }
+
+    pub const fn height(&self) -> f32 {
+        self.size[1]
+    }
+
     pub fn set_size(&self, size: [f32; 2], pivot: Pivot) -> Frame {
         self.anchor(pivot).frame(size)
     }

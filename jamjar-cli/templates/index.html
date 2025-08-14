@@ -15,18 +15,20 @@
             width: 100%;
             height: 100%;
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
+            flex: 1 1 100%;
+            contain: size;
         }
 
         #canvas {
             margin: 0;
-            flex: 1;
-            contain: size;
+            width: 100%;
+            height: 100%;
         }
-        {{ inline_css }}
+{{ inline_css }}
     </style>
     <script type="text/javascript">
-        {{ inline_js }}
+{{ inline_js }}
     </script>
   </head>
   <body>
