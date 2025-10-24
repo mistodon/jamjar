@@ -1,7 +1,7 @@
 [package]
 name = "jamjar"
-version = "0.2.0"
-authors = ["Vi <violet@hey.com>"]
+version = "0.3.0"
+authors = ["mistodon <violet@hey.com>"]
 description = "A collection of useful crates and utilities for quickly bootstrapping games for game jams."
 edition = "2021"
 
@@ -80,14 +80,14 @@ wgpu = { version = "24", features = ["webgl"], optional = true }
 
 [dependencies.glace]
 version = "0.3"
-git = "https://github.com/mistodon/glace"
+git = "https://git.sr.ht/~mistodon/glace"
 rev = "8736631"
 # path = "../glace/glace/glace"
 optional = true
 
 [dependencies.okmath]
 version = "0.3"
-git = "https://github.com/mistodon/okmath"
+git = "https://git.sr.ht/~mistodon/okmath"
 rev = "1b7ebcb"
 optional = true
 
