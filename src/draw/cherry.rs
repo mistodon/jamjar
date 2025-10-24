@@ -25,7 +25,8 @@ use crate::{
     mesh::{Mesh, Submeshes, Vertex},
     utils::Flag,
     windowing::{
-        event::{Event, WindowEvent},
+        event::{ElementState, Event, WindowEvent},
+        keyboard::{KeyCode, PhysicalKey},
         window::Window,
     },
 };
@@ -154,6 +155,8 @@ pub enum BuiltinOnly {}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinImage {
     White,
+    Record,
+    Play,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -477,7 +480,7 @@ where
     frame_stats: RenderStats,
 
     storage: FrameStorage<ShaderKey>,
-    editor_context: EditorContext,
+    editor: Editor,
 }
 
 impl<ImageKey, MeshKey, ShaderKey> DrawContext<ImageKey, MeshKey, ShaderKey>
@@ -543,7 +546,7 @@ where
 
         let size = window.inner_size();
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: swapchain_format,
             // TODO: Can we do something to ensure the window _isn't_ zero
             // sized instead?
@@ -784,10 +787,20 @@ where
             frame_stats: RenderStats::default(),
 
             storage: FrameStorage::new(),
-            editor_context: EditorContext {
+            editor: Editor {
                 shown: false,
-                file: None,
-                mode: EditMode::Default,
+                tab: EditorTab::Console,
+                console: dbgcmd::Console::new(),
+                console_cmd_ready: Flag::new(false),
+                camera_tab: CameraTab {
+                    view_overrides: vec![],
+                    selected_view: 0,
+                    editing_view: false,
+                },
+                config_tab: ConfigTab {
+                    file: None,
+                    mode: EditMode::Default,
+                },
             },
         };
 
@@ -913,8 +926,20 @@ where
             let bytes = include_bytes!("../../assets/images/white.png");
             image::load_from_memory(bytes).unwrap().to_rgba8()
         });
+        result.load_image_internal(BuiltinImage::Record, {
+            let bytes = include_bytes!("../../assets/images/record.png");
+            image::load_from_memory(bytes).unwrap().to_rgba8()
+        });
+        result.load_image_internal(BuiltinImage::Play, {
+            let bytes = include_bytes!("../../assets/images/play.png");
+            image::load_from_memory(bytes).unwrap().to_rgba8()
+        });
 
         Ok(result)
+    }
+
+    pub fn controlling_input(&self) -> bool {
+        self.editor.shown
     }
 
     pub fn handle_winit_event(&mut self, event: &Event<()>) {
@@ -938,7 +963,43 @@ where
                     },
                 ..
             } => self.scale_factor_changed(*scale_factor, ()),
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { event, .. },
+                ..
+            } if event.state == ElementState::Pressed => {
+                if event.physical_key == PhysicalKey::Code(KeyCode::Backquote) {
+                    self.editor.shown = !self.editor.shown;
+                    if self.editor.shown && self.editor.tab == EditorTab::Console {
+                        self.editor.console.show();
+                    } else {
+                        self.editor.console.hide();
+                    }
+                } else if event.physical_key == PhysicalKey::Code(KeyCode::Tab) {
+                    if self.editor.shown {
+                        self.editor.tab = self.editor.tab.next();
+                        if self.editor.tab == EditorTab::Console {
+                            self.editor.console.show();
+                        } else {
+                            self.editor.console.hide();
+                        }
+                    }
+                } else if event.physical_key == PhysicalKey::Code(KeyCode::Enter) {
+                    if self.editor.console.shown() {
+                        self.editor.console_cmd_ready.set();
+                    }
+                }
+            }
             _ => (),
+        }
+
+        self.editor.console.handle_winit_event(event);
+    }
+
+    pub fn console_cmd<Cmd: std::str::FromStr>(&mut self) -> Option<Result<Cmd, Cmd::Err>> {
+        if self.editor.console_cmd_ready.check() {
+            Some(self.editor.console.confirm())
+        } else {
+            None
         }
     }
 
@@ -1120,7 +1181,9 @@ where
         // TODO: Okay, this is insane, but we're going to actually pop it out and re-insert it to hide from the borrow checker. Bad idea long term.
         let (name, mut pipeline_entry) = self.pipelines.remove(shader_index);
 
-        if let Some((opaque_pipeline, trans_pipeline)) = self.make_pipelines(&pipeline_entry.layout, source.as_ref(), pipeline_entry.conf) {
+        if let Some((opaque_pipeline, trans_pipeline)) =
+            self.make_pipelines(&pipeline_entry.layout, source.as_ref(), pipeline_entry.conf)
+        {
             pipeline_entry.opaque = opaque_pipeline;
             pipeline_entry.trans = trans_pipeline;
         }
@@ -1158,7 +1221,8 @@ where
                 }],
             });
 
-        let (opaque_pipeline, trans_pipeline) = self.make_pipelines(&pipeline_layout, source, conf).unwrap();
+        let (opaque_pipeline, trans_pipeline) =
+            self.make_pipelines(&pipeline_layout, source, conf).unwrap();
 
         let uniforms_layout = self.custom_layouts.get(&name);
         let shader_index = self.pipelines.len() as u8;
@@ -1185,7 +1249,6 @@ where
         source: &str,
         conf: ShaderConf,
     ) -> Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)> {
-
         let mut shader_source = SHADER_HEADER.to_string();
         shader_source.push_str(source);
 
@@ -1202,7 +1265,8 @@ where
             attributes: &vertex_attributes,
         };
 
-        self.device.on_uncaptured_error(Box::new(static_wgpu_error_handler));
+        self.device
+            .on_uncaptured_error(Box::new(static_wgpu_error_handler));
 
         let shader = self
             .device
@@ -1215,7 +1279,8 @@ where
             return None;
         }
 
-        self.device.on_uncaptured_error(Box::new(default_wgpu_error_handler));
+        self.device
+            .on_uncaptured_error(Box::new(default_wgpu_error_handler));
 
         let y_flipped = conf.shader_flags.contains(ShaderFlags::Y_FLIPPED);
         let back_face = conf.shader_flags.contains(ShaderFlags::BACK_FACE_ONLY);
@@ -1771,8 +1836,10 @@ where
         self.time_render_end = Instant::now();
 
         self.context.queue.submit(Some(commands.finish()));
+
         self.time_submit = Instant::now();
 
+        // TODO: Can we window.pre_present_notify() somehow?
         frame.present();
         self.time_present = Instant::now();
 
@@ -2033,7 +2100,9 @@ where
         let camera_origin = inv_view * vec4(0., 0., 0., 1.);
 
         let ray_origin = near_plane_world_point.retract();
-        let ray_direction = (near_plane_world_point - camera_origin).norm_zero().retract();
+        let ray_direction = (near_plane_world_point - camera_origin)
+            .norm_zero()
+            .retract();
 
         (ray_origin.0, ray_direction.0)
     }
@@ -2065,7 +2134,9 @@ where
         let camera_origin = inv_view * vec4(0., 0., 0., 1.);
 
         let ray_origin = near_plane_world_point.retract();
-        let ray_direction = (near_plane_world_point - camera_origin).norm_zero().retract();
+        let ray_direction = (near_plane_world_point - camera_origin)
+            .norm_zero()
+            .retract();
 
         (ray_origin.0, ray_direction.0)
     }
@@ -2185,7 +2256,39 @@ where
         .frame([w, h])
     }
 
-    pub fn experimental_stored_shader_sprite<K: Into<ImageAssetKey<ImageKey>>, S: Into<ShaderAssetKey<ShaderKey>>>(
+    // TODO: DRY fail
+    pub fn stored_sprite_frame<K: Into<ImageAssetKey<ImageKey>>>(
+        &mut self,
+        image: K,
+        params: SpriteParams,
+    ) -> Frame {
+        let image = image.into();
+        let (_page, region) = self.context.image_atlas.fetch(&image).unwrap();
+        let [x, y] = params.pos;
+        let [w, h] = region.size();
+        let [cels_x, cels_y] = params.cel.1;
+        let [def_w, def_h] = [w as f32 / cels_x as f32, h as f32 / cels_y as f32];
+
+        let [w, h] = match params.size {
+            Size::Default => [def_w, def_h],
+            Size::Set(size) => size,
+            Size::SetWidth(w) => [w, (w / def_w) * def_h],
+            Size::SetHeight(h) => [(h / def_h) * def_w, h],
+            Size::Scaled([scale_w, scale_h]) => [def_w * scale_w, def_h * scale_h],
+        };
+
+        Anchor {
+            pos: [x, y],
+            pivot: params.pivot,
+        }
+        .frame([w, h])
+    }
+
+    // TODO: Nicer way to do this maybe?
+    pub fn experimental_stored_shader_sprite<
+        K: Into<ImageAssetKey<ImageKey>>,
+        S: Into<ShaderAssetKey<ShaderKey>>,
+    >(
         &mut self,
         image: K,
         shader: S,
@@ -2231,12 +2334,7 @@ where
         .frame([w, h])
     }
 
-    fn glyph_internal(
-        &mut self,
-        draw_call_index: usize,
-        glyph: &Glyph,
-        ctx: &GlyphCtx,
-    ) {
+    fn glyph_internal(&mut self, draw_call_index: usize, glyph: &Glyph, ctx: &GlyphCtx) {
         let region = self.context.font_atlas.fetch(glyph);
         if let Some(region) = region {
             let sf = self.context.scale_factor as f32;
@@ -2274,6 +2372,8 @@ where
             let end_index = self.context.storage.push_constants.len();
 
             self.context.storage.trans_calls[draw_call_index].push_range = start_index..end_index;
+        } else {
+            eprintln!("WARNING: Failed to fetch glyph `{}` (UTF-8: 0x{:x}) from atlas which will cause text rendering glitches.", glyph.ch, glyph.ch as u32);
         }
     }
 
@@ -2291,13 +2391,23 @@ where
         );
     }
 
-    pub fn draw_console(&mut self, console: &dbgcmd::Console) {
-        if console.shown() {
+    pub fn draw_editor(&mut self) {
+        if self.context.editor.shown {
             self.ortho_2d();
             self.draw_tinted_overlay();
 
+            match self.context.editor.tab {
+                EditorTab::Console => self.draw_console(),
+                EditorTab::Config => self.draw_config_tab("assets/config.yaml"),
+                EditorTab::Camera => self.draw_camera_tab(),
+            }
+        }
+    }
+
+    fn draw_console(&mut self) {
+        if self.context.editor.console.shown() {
             let (cur, glyphs) = self.context.built_in_font.layout_line_cur(
-                console.entry(),
+                self.context.editor.console.entry(),
                 [4., 4.],
                 self.context.scale_factor,
                 None,
@@ -2311,7 +2421,16 @@ where
             self.glyphs(&glyphs, [0., 0.], [0., 1., 0., 1.], D, false);
             self.glyphs(&glyphs_2, [0., 0.], [0., 0.5, 0., 1.], D, false);
 
-            for (i, line) in console.history().take(32).enumerate() {
+            let history = self
+                .context
+                .editor
+                .console
+                .history()
+                .take(32)
+                .map(str::to_owned)
+                .enumerate()
+                .collect::<Vec<_>>();
+            for (i, line) in history {
                 let glyphs = self.context.built_in_font.layout_line(
                     line,
                     [8., 4. + (i as f32 + 1.) * 16.],
@@ -2323,10 +2442,26 @@ where
         }
     }
 
-    pub fn draw_editor<P: AsRef<std::path::Path>>(&mut self, path: P) {
+    fn draw_camera_tab(&mut self) {
+        let mut buffer = String::new();
+        for pass in &self.context.storage.camera_passes {
+            buffer.push_str(&format!("{:?}\n", pass));
+        }
+
+        let glyphs = self.context.built_in_font.layout_wrapped(
+            &buffer,
+            [4., 4.],
+            self.context.scale_factor,
+            None,
+            640.,
+            1.,
+            None,
+        );
+        self.glyphs(&glyphs, [0., 0.], [0., 1., 0., 1.], D, false);
+    }
+
+    fn draw_config_tab<P: AsRef<std::path::Path>>(&mut self, path: P) {
         use serde_yaml::Value;
-        self.ortho_2d();
-        self.draw_tinted_overlay();
 
         let source = std::fs::read_to_string(path.as_ref()).unwrap();
         let object: Value = serde_yaml::from_str(&source).unwrap();
@@ -2379,6 +2514,7 @@ where
 
         let glyphs = glyphs
             .into_iter()
+            .filter(|glyph| !glyph.ch.is_whitespace())
             .map(|glyph| {
                 let mut glyph = glyph.clone();
                 let mut point = glyph.glyph.position();
@@ -2448,7 +2584,16 @@ where
     ) where
         I: IntoIterator<Item = &'g Glyph>,
     {
-        self.glyphs3d(glyphs, BuiltinShader::YFlip, Mat4::identity().0, offset, tint, depth, pixelly, true)
+        self.glyphs3d(
+            glyphs,
+            BuiltinShader::YFlip,
+            Mat4::identity().0,
+            offset,
+            tint,
+            depth,
+            pixelly,
+            true,
+        )
     }
 
     pub fn glyphs_partial<'g, I, F: Fn(char) -> f64>(
@@ -2484,7 +2629,10 @@ where
             point.x += dx;
             point.y += dy;
             glyph.glyph.set_position(point);
-            to_render.push(glyph);
+
+            if !ch.is_whitespace() {
+                to_render.push(glyph);
+            }
 
             drawn += 1;
             let cost = cost_fn(ch);
@@ -2770,7 +2918,25 @@ where
         self.stored_sprite(image, params)
     }
 
-    pub fn experimental_shader_sprite<I, S>(&mut self, image: I, shader: S, params: SpriteParams) -> Frame
+    pub fn sprite_frame<I>(&mut self, image: I, params: SpriteParams) -> Frame
+    where
+        I: Into<ImageAssetKey<ImageKey>>,
+    {
+        let image = image.into();
+        if let AssetKey::Key(key) = &image {
+            if self.context.image_atlas.fetch(&image).is_none() {
+                self.context.load_image(key.clone(), key.value());
+            }
+        }
+        self.stored_sprite_frame(image, params)
+    }
+
+    pub fn experimental_shader_sprite<I, S>(
+        &mut self,
+        image: I,
+        shader: S,
+        params: SpriteParams,
+    ) -> Frame
     where
         I: Into<ImageAssetKey<ImageKey>>,
         S: Into<ShaderAssetKey<ShaderKey>>,
@@ -2912,8 +3078,50 @@ where
     }
 }
 
-struct EditorContext {
+struct Editor {
     shown: bool,
+    tab: EditorTab,
+
+    console: dbgcmd::Console,
+    console_cmd_ready: Flag,
+
+    camera_tab: CameraTab,
+    config_tab: ConfigTab,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditorTab {
+    Console,
+    Camera,
+    Config,
+}
+
+impl EditorTab {
+    pub const ALL: &[EditorTab] = &[EditorTab::Console, EditorTab::Camera, EditorTab::Config];
+
+    pub fn next(self) -> Self {
+        let index = Self::ALL.iter().position(|&x| x == self).unwrap_or(0) + 1;
+        Self::ALL[index % Self::ALL.len()]
+    }
+}
+
+/// TODO
+/// - Pad/truncate overrides to the right size each frame
+/// - Controls to go up and down and select which view is active
+/// - Enter to start/stop editing
+/// - (maybe don't draw overlay while editing?)
+/// - Controls to free-fly cam and modify the selected override
+/// - Update the actual rendering to use the override if it exists
+/// - Backspace to clear override
+struct CameraTab {
+    view_overrides: Vec<Option<Mat4<f32>>>,
+    selected_view: usize,
+    editing_view: bool,
+}
+
+/// NODE
+/// - Quick and dirty idea for positioning objects: mouse x/y/scroll
+struct ConfigTab {
     file: Option<EditingFile>,
     mode: EditMode,
 }

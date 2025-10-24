@@ -68,8 +68,10 @@ impl<S: Clone, F: Clone + PartialEq> LoopState<S, F> {
     }
 
     pub fn start_recording(&mut self, state: &mut S) {
-        if let Some(recording) = &self.recording {
-            *state = recording.start_state.clone();
+        if self.recording() || self.playing() {
+            if let Some(recording) = &self.recording {
+                *state = recording.start_state.clone();
+            }
         }
         self.recording = Some(LoopRecording {
             start_state: state.clone(),

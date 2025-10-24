@@ -111,7 +111,7 @@ impl GlyphRegion {
 pub struct Depth(f32);
 
 impl Depth {
-    pub fn new(value: f32) -> Self {
+    pub const fn new(value: f32) -> Self {
         assert!(value.is_normal());
         Depth(value)
     }
@@ -126,6 +126,7 @@ impl Ord for Depth {
 }
 
 pub const D: Depth = Depth(1.);
+pub const MAX_D: Depth = Depth(f32::MAX);
 
 impl std::ops::Add<Depth> for Depth {
     type Output = Depth;
@@ -169,6 +170,7 @@ pub enum ResizeMode {
     SetLogical([f32; 2]),
     SetLogicalWidth(f32),
     SetLogicalHeight(f32),
+    SetLogicalHeightMinAspect(f32, [u32; 2]),
     SetLogicalMin(f32),
     SetPhysical([u32; 2]),
     SetPhysicalWidth(u32),
@@ -243,6 +245,14 @@ impl CanvasConfig {
         }
     }
 
+    pub fn set_height_min_aspect(height: f32, min_aspect: [u32; 2]) -> Self {
+        CanvasConfig {
+            canvas_mode: CanvasMode::Direct,
+            resize_mode: ResizeMode::SetLogicalHeightMinAspect(height, min_aspect),
+            scale_mode: ScaleMode::Max,
+        }
+    }
+
     pub fn set_min(size: f32) -> Self {
         CanvasConfig {
             canvas_mode: CanvasMode::Direct,
@@ -289,6 +299,16 @@ impl CanvasConfig {
             ResizeMode::SetLogical([w, h]) => [w as f64 * s, h as f64 * s],
             ResizeMode::SetLogicalWidth(w) => [w as f64 * s, w as f64 * s * i_window_aspect],
             ResizeMode::SetLogicalHeight(h) => [h as f64 * s * window_aspect, h as f64 * s],
+            ResizeMode::SetLogicalHeightMinAspect(h, aspect) => {
+                // TODO: This feels wrong? But so does the above...
+                // Specifically: h * s is not guaranteed to be the pixel height of the window at all surely.
+                let [maw, mah] = aspect;
+                let min_aspect = maw as f64 / mah as f64;
+                let aspect = min_aspect.max(window_aspect);
+                let h = h as f64 * s;
+                let w = h * aspect;
+                [w, h]
+            }
             ResizeMode::SetLogicalMin(v) => {
                 let v = v as f64 * s;
                 match pw > ph {
@@ -316,6 +336,14 @@ impl CanvasConfig {
             ResizeMode::SetLogical(res) => [res[0] as f64, res[1] as f64],
             ResizeMode::SetLogicalWidth(w) => [w as f64, w as f64 * i_window_aspect],
             ResizeMode::SetLogicalHeight(h) => [h as f64 * window_aspect, h as f64],
+            ResizeMode::SetLogicalHeightMinAspect(h, aspect) => {
+                let [maw, mah] = aspect;
+                let min_aspect = maw as f64 / mah as f64;
+                let aspect = min_aspect.max(window_aspect);
+                let h = h as f64;
+                let w = h * aspect;
+                [w, h]
+            }
             ResizeMode::SetLogicalMin(v) => match pw > ph {
                 true => [v as f64 * window_aspect, v as f64],
                 false => [v as f64, v as f64 * i_window_aspect],

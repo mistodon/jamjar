@@ -120,9 +120,7 @@ pub struct IdPool {
 
 impl IdPool {
     pub fn new() -> Self {
-        IdPool {
-            next_id: 0,
-        }
+        IdPool { next_id: 0 }
     }
 
     pub fn draw(&mut self) -> usize {
@@ -139,7 +137,7 @@ impl IdPool {
         self.next_id = std::cmp::min(self.next_id, max_id + 1);
     }
 
-    pub fn free_unused(&mut self, used: impl Iterator<Item=usize>) {
-        self.free_after(used.max().unwrap_or(std::usize::MAX));
+    pub fn free_unused(&mut self, used: impl Iterator<Item = usize>) {
+        self.free_after(used.max().unwrap_or(0));
     }
 }

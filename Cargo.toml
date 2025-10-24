@@ -57,7 +57,7 @@ vulkandev = ["everything", "draw_groove", "draw_sloth", "draw_forever", "vulkan"
 
 [dependencies]
 bitflags = { version = "2.3", optional = true }
-buttons = { version = "0.6", optional = true, features = ["winit_0_29"] }
+buttons = { version = "0.7", optional = true, features = ["winit_0_29"] }
 dirty_static = { version = "0.1", optional = true }
 edres = { version = "0.6", optional = true, features = ["toml", "yaml"] }
 gfx-hal = { version = "0.9", optional = true }
@@ -78,9 +78,11 @@ toml = { version = "0.5", optional = true }
 wgpu = { version = "24", features = ["webgl"], optional = true }
 
 [dependencies.dbgcmd]
-version = "0.3"
+version = "0.4"
 # git = "https://github.com/mistodon/dbgcmd"
 optional = true
+path = "../dbgcmd"
+features = ["winit_0_29"]
 
 [dependencies.glace]
 version = "0.3"

@@ -44,8 +44,7 @@ pub fn window(
         logical
     };
 
-    let mut window_builder = WindowBuilder::new()
-        .with_title(title);
+    let mut window_builder = WindowBuilder::new().with_title(title);
 
     #[cfg(not(web_platform))]
     {

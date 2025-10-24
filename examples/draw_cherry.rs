@@ -199,10 +199,28 @@ mod internal {
 
                     ren.perspective_3d(1.0);
 
-                    let text_label_transform = Mat4::translation([0., 1.0, 2.]) * Mat4::scale([0.01, 0.01, 1., 1.]);
+                    let text_label_transform =
+                        Mat4::translation([0., 1.0, 2.]) * Mat4::scale([0.01, 0.01, 1., 1.]);
 
-                    let c3d = font.layout_wrapped("AH!\nI wish this was the right way up.", [0., 0.], sf, None, 9e9, 1., None);
-                    ren.glyphs3d(&c3d, BuiltinShader::Basic, text_label_transform.0, [0., 0.], [1., 1., 0., 1.], 5 * D, false, false);
+                    let c3d = font.layout_wrapped(
+                        "AH!\nI wish this was the right way up.",
+                        [0., 0.],
+                        sf,
+                        None,
+                        9e9,
+                        1.,
+                        None,
+                    );
+                    ren.glyphs3d(
+                        &c3d,
+                        BuiltinShader::Basic,
+                        text_label_transform.0,
+                        [0., 0.],
+                        [1., 1., 0., 1.],
+                        5 * D,
+                        false,
+                        false,
+                    );
 
                     ren.draw(
                         BuiltinShader::Basic,
@@ -214,7 +232,6 @@ mod internal {
                         false,
                         None,
                     );
-
 
                     ren.draw(
                         BuiltinShader::Basic,

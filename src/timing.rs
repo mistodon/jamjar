@@ -1,7 +1,7 @@
 #[cfg(web_platform)]
 use wasm_bindgen::prelude::*;
 
-use std::marker::PhantomData;
+use std::{collections::VecDeque, marker::PhantomData};
 
 #[cfg(not(web_platform))]
 use std::time as timecrate;
@@ -124,22 +124,21 @@ pub type RealClock = Clock<RealTime>;
 pub type RealTimestamp = Timestamp<RealTime>;
 
 pub struct FramePacer {
-    frame_time: timecrate::Instant,
+    frame_time: Instant,
 }
 
 impl FramePacer {
     pub fn new() -> FramePacer {
         FramePacer {
-            frame_time: timecrate::Instant::now(),
+            frame_time: Instant::now(),
         }
     }
 
-    pub fn deadline_for_fps(&mut self, fps: f64) -> timecrate::Instant {
-        let now = timecrate::Instant::now();
+    pub fn deadline_for_fps(&mut self, fps: f64) -> Instant {
+        let now = Instant::now();
 
         let target_frame_duration = 1. / fps;
-        let frame_deadline =
-            self.frame_time + timecrate::Duration::from_secs_f64(target_frame_duration);
+        let frame_deadline = self.frame_time + Duration::from_secs_f64(target_frame_duration);
 
         if now < frame_deadline {
             self.frame_time = frame_deadline;
@@ -148,5 +147,57 @@ impl FramePacer {
         }
 
         frame_deadline
+    }
+}
+
+pub struct FpsCounter {
+    frames: VecDeque<Duration>,
+    last_t: Instant,
+    window_size: usize,
+}
+
+impl FpsCounter {
+    pub fn new(window_size: usize, start_t: Instant) -> Self {
+        FpsCounter {
+            frames: VecDeque::new(),
+            last_t: start_t,
+            window_size,
+        }
+    }
+
+    pub fn new_now(window_size: usize) -> Self {
+        let now = Instant::now();
+        Self::new(window_size, now)
+    }
+
+    pub fn update(&mut self, now: Instant) {
+        let dt = now.duration_since(self.last_t);
+        self.last_t = now;
+        self.frames.push_back(dt);
+        if self.frames.len() > self.window_size {
+            self.frames.pop_front();
+        }
+    }
+
+    pub fn update_now(&mut self) {
+        let now = Instant::now();
+        self.update(now);
+    }
+
+    pub fn mean_frame_time(&self) -> Duration {
+        self.frames.iter().sum::<Duration>() / self.frames.len() as u32
+    }
+
+    pub fn mean_fps(&self) -> f64 {
+        let mean_frame_secs = self.mean_frame_time().as_secs_f64();
+        1. / mean_frame_secs
+    }
+
+    pub fn max_frame_time(&self) -> Option<Duration> {
+        self.frames.iter().max().copied()
+    }
+
+    pub fn min_fps(&self) -> Option<f64> {
+        self.max_frame_time().map(|x| 1. / x.as_secs_f64())
     }
 }
